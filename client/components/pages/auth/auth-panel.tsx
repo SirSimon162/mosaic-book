@@ -52,7 +52,7 @@ const COPY: Record<
 };
 
 function callbackURL() {
-  return `${window.location.origin}${routes.home}`;
+  return `${window.location.origin}${routes.dashboard}`;
 }
 
 export function AuthPanel({ mode }: { mode: AuthMode }) {
@@ -101,7 +101,7 @@ export function AuthPanel({ mode }: { mode: AuthMode }) {
       return;
     }
 
-    router.push(routes.home);
+    router.replace(routes.dashboard);
     router.refresh();
   }
 
