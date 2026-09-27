@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import {environment} from "../config/index.js";
+import { environment } from "../config/index.js";
 import { AccessTokenPayload } from "../modules/auth/auth.types.js";
 
 export const createAccessToken = (data: AccessTokenPayload) => {

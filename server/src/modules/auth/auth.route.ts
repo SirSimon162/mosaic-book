@@ -1,8 +1,7 @@
 import express, { type Router } from "express";
-import { registerSchema } from "./auth.types.js";
-import { registerUser } from "./auth.service.js";
-import { createAccessToken } from "../../utils/jwt.js";
-import { setAuthCookie } from "../../utils/index.js";
+import { loginSchema, registerSchema } from "./auth.types.js";
+import { registerUser, loginUser } from "./auth.service.js";
+import { setAuthCookie, createAccessToken } from "../../utils/index.js";
 import { sendSuccess, sendFail } from "../../lib/api-response.js";
 import { Status } from "../../lib/http-code.js";
 
@@ -21,6 +20,21 @@ authRoutes.post("/register", async (req, res) => {
   });
   setAuthCookie(res, token);
   return sendSuccess(res, Status.CREATED, user);
+});
+
+authRoutes.post("/login", async (req, res) => {
+  const input = loginSchema.safeParse(req.body);
+  if (!input.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  const user = await loginUser(input.data);
+  const token = createAccessToken({
+    sub: user.id,
+    role: user.role,
+    email: user.email,
+  });
+  setAuthCookie(res, token);
+  return sendSuccess(res, Status.OK, user);
 });
 
 export default authRoutes;

@@ -30,3 +30,22 @@ export async function createUser(input: CreateUserInput) {
     throw e;
   }
 }
+
+export async function findUserByEmail(email: string) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: {
+        email: email.toLowerCase().trim(),
+      },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        role: true,
+      },
+    });
+    return user;
+  } catch (e) {
+    throw e;
+  }
+}
