@@ -9,5 +9,5 @@ export const createAccessToken = (data: AccessTokenPayload) => {
 };
 
 export const verifyAccessToken = (token: string) => {
-  return jwt.verify(token, environment.JWT_SECRET);
+  return jwt.verify(token, environment.JWT_SECRET) as AccessTokenPayload;
 };

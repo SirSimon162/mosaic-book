@@ -1,7 +1,7 @@
 import express, { type Router } from "express";
 import { loginSchema, registerSchema } from "./auth.types.js";
 import { registerUser, loginUser } from "./auth.service.js";
-import { setAuthCookie, createAccessToken } from "../../utils/index.js";
+import { setAuthCookie, createAccessToken, clearAuthCookie } from "../../utils/index.js";
 import { sendSuccess, sendFail } from "../../lib/api-response.js";
 import { Status } from "../../lib/http-code.js";
 
@@ -36,5 +36,10 @@ authRoutes.post("/login", async (req, res) => {
   setAuthCookie(res, token);
   return sendSuccess(res, Status.OK, user);
 });
+
+authRoutes.post("/logout", async (req, res)=>{
+  clearAuthCookie(res);
+  return sendSuccess(res, Status.OK, null)
+})
 
 export default authRoutes;
