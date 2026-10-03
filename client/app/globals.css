@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f3f0e8;
+  --sheet: #fbfaf6;
+  --ink: #1a1916;
+  --mute: #6f6a62;
+  --rule: #e4dfd4;
+  --mark: #9a3412;
+  --desk: #241f1a;
+  --cream: #f3ede4;
+  --desk-line: rgb(243 237 228 / 0.14);
+  color-scheme: light;
+}
+
+:root[data-theme="night"] {
+  --paper: #161411;
+  --sheet: #1e1b17;
+  --ink: #f3ede4;
+  --mute: #a39a8e;
+  --rule: #3a342c;
+  --mark: #e0a15a;
+  --desk: #100e0c;
+  --cream: #f3ede4;
+  --desk-line: rgb(243 237 228 / 0.14);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-sheet: var(--sheet);
+  --color-ink: var(--ink);
+  --color-mute: var(--mute);
+  --color-rule: var(--rule);
+  --color-mark: var(--mark);
+  --color-desk: var(--desk);
+  --color-cream: var(--cream);
+  --color-desk-line: var(--desk-line);
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-newsreader), ui-serif, georgia, serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--mark) 28%, transparent);
+}
+
+@keyframes cite {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  40% {
+    background-color: color-mix(in srgb, var(--mark) 28%, transparent);
+  }
+}
+
+.cite-pulse {
+  animation: cite 3.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cite-pulse {
+    animation: none;
+    background-color: color-mix(in srgb, var(--mark) 18%, transparent);
+  }
+}
