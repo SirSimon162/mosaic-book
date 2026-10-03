@@ -6,8 +6,8 @@ import { getUserByUserId } from "./user.service.js";
 const userRoutes: Router = express.Router();
 
 userRoutes.get("/me", async (req: Request, res: Response) => {
-    const user = await getUserByUserId(req.userId!)
-    return sendSuccess(res, Status.OK, user)
-})
+  const user = await getUserByUserId(req.userId!);
+  return sendSuccess(res, Status.OK, user);
+});
 
 export default userRoutes;

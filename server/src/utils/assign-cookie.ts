@@ -15,11 +15,10 @@ export const setAuthCookie = (res: Response, token: string) => {
   });
 };
 
-
-export function clearAuthCookie(res: Response){
+export function clearAuthCookie(res: Response) {
   res.clearCookie(AUTH_COOKIE, {
     httpOnly: true,
     secure: AUTH_COOKIE_SECURE,
-    sameSite: AUTH_COOKIE_SAME_SITE
+    sameSite: AUTH_COOKIE_SAME_SITE,
   });
 }

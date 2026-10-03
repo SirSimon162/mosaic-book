@@ -2,7 +2,7 @@ import express, { type Express } from "express";
 import cors, { CorsOptions } from "cors";
 import { errorHandler, notFound } from "./middleware/index.js";
 import appRoutes from "./routes/index.js";
-import cookieParser from "cookie-parser"
+import cookieParser from "cookie-parser";
 export const app: Express = express();
 
 const corsOptions: CorsOptions = {
