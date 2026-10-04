@@ -9,6 +9,8 @@ import type {
   WorkspaceSummary,
 } from "./types";
 
+let sessionRequest: Promise<SessionUser | null> | null = null;
+
 export const MOSAIC = {
   register(input: RegisterBody) {
     return request<SessionUser>("/api/auth/register", {
@@ -29,7 +31,14 @@ export const MOSAIC = {
   },
 
   me() {
-    return request<SessionUser | null>("/api/user/me", { allowUnauthorized: true });
+    if (!sessionRequest) {
+      sessionRequest = request<SessionUser | null>("/api/user/me", {
+        allowUnauthorized: true,
+      }).finally(() => {
+        sessionRequest = null;
+      });
+    }
+    return sessionRequest;
   },
 
   listWorkspaces() {
@@ -54,6 +63,7 @@ export type {
   RegisterBody,
   SessionUser,
   Workspace,
+  WorkspaceChat,
   WorkspaceDetails,
   WorkspaceSource,
   WorkspaceSummary,

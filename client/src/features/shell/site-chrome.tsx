@@ -8,7 +8,7 @@ import { Navbar } from "@/features/shell/navbar";
 export function SiteChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
-  if (pathname === "/mosaic") {
+  if (pathname === "/mosaic" || pathname.startsWith("/mosaic/")) {
     return <div className="h-dvh overflow-hidden">{children}</div>;
   }
 

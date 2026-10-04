@@ -50,7 +50,12 @@ export enum SourceStatus {
 }
 
 export const publicWorkspaceDetailsSchema = publicWorkspaceSchema.extend({
-  chats: z.array(z.string()),
+  chats: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+    }),
+  ),
   sources: z.array(
     z.object({
       id: z.string(),

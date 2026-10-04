@@ -39,6 +39,9 @@ export async function getWorkspacesByUserId(userId: string) {
         },
       },
     },
+    orderBy: {
+      updatedAt: "desc",
+    },
   });
   return workspaces;
 }
@@ -66,6 +69,10 @@ export async function getWorkspaceById(workspaceId: string, userId: string) {
       chats: {
         select: {
           id: true,
+          title: true,
+        },
+        orderBy: {
+          updatedAt: "desc",
         },
       },
       sources: {

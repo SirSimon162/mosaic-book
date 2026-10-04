@@ -33,8 +33,13 @@ export type WorkspaceSource = {
   status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
 };
 
+export type WorkspaceChat = {
+  id: string;
+  title: string;
+};
+
 export type WorkspaceDetails = Workspace & {
-  chats: string[];
+  chats: WorkspaceChat[];
   sources: WorkspaceSource[];
 };
 

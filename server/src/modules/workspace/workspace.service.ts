@@ -64,7 +64,10 @@ export async function getWorkspace(
       firstName: user.firstName,
       lastName: user.lastName,
     })),
-    chats: workspace.chats.map((chat) => chat.id),
+    chats: workspace.chats.map((chat) => ({
+      id: chat.id,
+      title: chat.title,
+    })),
     sources: workspace.sources.map((source) => ({
       id: source.id,
       title: source.title,

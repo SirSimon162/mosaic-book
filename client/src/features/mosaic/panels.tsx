@@ -64,6 +64,9 @@ export function UploadPanel({
       </form>
 
       <ul className="mt-8 divide-y divide-primary overflow-hidden rounded-2xl border border-primary bg-secondary">
+        {sources.length === 0 && (
+          <li className="px-4 py-6 text-sm text-secondary">Nothing in this workspace yet.</li>
+        )}
         {sources.map((source) => (
           <li key={source.id} className="flex items-center justify-between gap-4 px-4 py-3">
             <div className="min-w-0">

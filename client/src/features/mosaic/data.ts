@@ -1,6 +1,6 @@
 export type Mode = "upload" | "chat" | "learn";
 
-export type SourceStatus = "Ready" | "Processing" | "Pending";
+export type SourceStatus = "Ready" | "Processing" | "Pending" | "Failed";
 
 export type SourceItem = {
   id: string;
