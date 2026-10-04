@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { EnterLink } from "@/features/auth/enter-link";
 import { stackSection } from "./section";
 
 const sources = ["results.xlsx", "Methods · YouTube", "field-notes.md"];
@@ -25,12 +25,9 @@ export function Hero() {
             from.
           </p>
           <div className="mt-8 flex items-center gap-5">
-            <Link
-              href="/mosaic"
-              className="rounded-full bg-accent px-5 py-2.5 text-sm text-on-accent"
-            >
+            <EnterLink className="rounded-full bg-accent px-5 py-2.5 text-sm text-on-accent">
               Open Mosaic
-            </Link>
+            </EnterLink>
             <a
               href="#path"
               className="text-sm text-inverse underline decoration-[var(--color-inverse)]/30 underline-offset-4"

@@ -2,8 +2,8 @@
 
 import { BookOpen, MessageSquare, Upload } from "lucide-react";
 import Link from "next/link";
-import { Brand } from "@/components/branding/brand";
-import { ThemeIcon } from "@/components/marginals/navbar/theme-switch";
+import { Brand } from "@/shared/branding/brand";
+import { ThemeIcon } from "@/features/shell/navbar/theme-switch";
 import { threads, workspaceName, type Mode } from "./data";
 
 const modes: { id: Mode; label: string; icon: typeof Upload }[] = [

@@ -4,7 +4,7 @@ import { Menu, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
-import { Brand } from "@/components/branding/brand";
+import { Brand } from "@/shared/branding/brand";
 import { GlassMenu } from "./glass-menu";
 import { navLinks, scrollToSection, sectionInView } from "./links";
 import { MyMosaic } from "./my-mosaic";

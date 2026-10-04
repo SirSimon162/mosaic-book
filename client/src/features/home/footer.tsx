@@ -1,3 +1,4 @@
+import { EnterLink } from "@/features/auth/enter-link";
 import Link from "next/link";
 import { stackSection } from "./section";
 
@@ -33,12 +34,9 @@ export function HomeFooter() {
               A workspace is private. Start with one file, a link, or a video.
               The sources, the thread, and the cards stay on the same subject.
             </p>
-            <Link
-              href="/mosaic"
-              className="mt-6 inline-block text-sm text-accent underline underline-offset-4"
-            >
+            <EnterLink className="mt-6 inline-block text-sm text-accent underline underline-offset-4">
               Open a workspace
-            </Link>
+            </EnterLink>
           </div>
         </div>
       </div>

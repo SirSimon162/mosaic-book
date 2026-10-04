@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Dashboard } from "@/components/mosaic/dashboard";
+import { Dashboard } from "@/features/mosaic/dashboard";
+import { MosaicGate } from "@/features/mosaic/gate";
 
 export const metadata: Metadata = {
   title: "Mosaic",
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function MosaicPage() {
-  return <Dashboard />;
+  return (
+    <MosaicGate>
+      <Dashboard />
+    </MosaicGate>
+  );
 }

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import Script from "next/script";
-import { SiteChrome } from "@/components/site-chrome";
+import { SessionProvider } from "@/features/auth/provider";
+import { SiteChrome } from "@/features/shell/site-chrome";
 import "./globals.css";
 
 const geist = Geist({
@@ -39,7 +40,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Script id="mosaic-theme" strategy="beforeInteractive">
           {themeScript}
         </Script>
-        <SiteChrome>{children}</SiteChrome>
+        <SessionProvider>
+          <SiteChrome>{children}</SiteChrome>
+        </SessionProvider>
       </body>
     </html>
   );

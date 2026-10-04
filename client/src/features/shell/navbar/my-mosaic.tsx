@@ -3,22 +3,24 @@
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Mark } from "@/components/branding/mark";
+import { Mark } from "@/shared/branding/mark";
+import { useSession } from "@/features/auth/session";
 
 export function MyMosaic({ shine = false }: { shine?: boolean }) {
   const reduce = useReducedMotion();
-  const [ready, setReady] = useState(false);
+  const { user, ready, enter } = useSession();
+  const [mounted, setMounted] = useState(false);
+  const loggedIn = ready && user;
 
   useEffect(() => {
-    setReady(true);
+    setMounted(true);
   }, []);
 
-  return (
-    <Link
-      href="/mosaic"
-      className="relative inline-flex h-10 overflow-hidden rounded-lg bg-[var(--color-on-accent)]/40 p-px md:h-12"
-    >
-      {shine && ready && reduce === false && (
+  const className =
+    "relative inline-flex h-10 overflow-hidden rounded-lg bg-[var(--color-on-accent)]/40 p-px md:h-12";
+  const face = (
+    <>
+      {shine && mounted && reduce === false && (
         <motion.span
           aria-hidden
           className="pointer-events-none absolute top-1/2 left-1/2 size-64 -translate-x-1/2 -translate-y-1/2"
@@ -34,6 +36,20 @@ export function MyMosaic({ shine = false }: { shine?: boolean }) {
         <Mark className="size-5 md:size-6" />
         My Mosaic
       </span>
-    </Link>
+    </>
+  );
+
+  if (loggedIn) {
+    return (
+      <Link href="/mosaic" className={className}>
+        {face}
+      </Link>
+    );
+  }
+
+  return (
+    <button type="button" onClick={enter} className={`cursor-pointer ${className}`}>
+      {face}
+    </button>
   );
 }

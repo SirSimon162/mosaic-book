@@ -2,8 +2,8 @@
 
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { Footer } from "@/components/marginals/footer";
-import { Navbar } from "@/components/marginals/navbar";
+import { Footer } from "@/features/shell/footer";
+import { Navbar } from "@/features/shell/navbar";
 
 export function SiteChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Brand } from "../branding/brand";
+import { EnterLink } from "@/features/auth/enter-link";
+import { Brand } from "@/shared/branding/brand";
 
 const columns = [
   {
@@ -45,12 +46,18 @@ export function Footer() {
               <ul className="mt-4 space-y-2">
                 {column.links.map((link) => (
                   <li key={link.label}>
-                    <Link
-                      href={link.href}
-                      className="text-sm text-[var(--color-inverse)]/85 hover:text-accent"
-                    >
-                      {link.label}
-                    </Link>
+                    {link.href === "/mosaic" ? (
+                      <EnterLink className="text-sm text-[var(--color-inverse)]/85 hover:text-accent">
+                        {link.label}
+                      </EnterLink>
+                    ) : (
+                      <Link
+                        href={link.href}
+                        className="text-sm text-[var(--color-inverse)]/85 hover:text-accent"
+                      >
+                        {link.label}
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>
