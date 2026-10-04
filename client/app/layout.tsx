@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import Script from "next/script";
+import { SiteChrome } from "@/components/site-chrome";
 import "./globals.css";
 
 const geist = Geist({
@@ -21,7 +22,8 @@ const newsreader = Newsreader({
 
 export const metadata: Metadata = {
   title: "Mosaic",
-  description: "A private study workspace for your own sources.",
+  description: "A private workspace for files, sheets, sites, and videos you ask about.",
+  icons: { icon: "/mosaic-logo.svg" },
 };
 
 const themeScript = `try{if(localStorage.getItem("mosaic-theme")==="night")document.documentElement.dataset.theme="night"}catch(e){}`;
@@ -30,14 +32,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geist.variable} ${geistMono.variable} ${newsreader.variable} h-full scroll-smooth`}
+      className={`${geist.variable} ${geistMono.variable} ${newsreader.variable} h-full`}
       suppressHydrationWarning
     >
-      <body className="min-h-full bg-paper font-sans text-ink antialiased">
+      <body className="flex min-h-full flex-col bg-primary font-primary text-primary antialiased">
         <Script id="mosaic-theme" strategy="beforeInteractive">
           {themeScript}
         </Script>
-        {children}
+        <SiteChrome>{children}</SiteChrome>
       </body>
     </html>
   );

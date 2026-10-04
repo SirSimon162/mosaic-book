@@ -1,78 +1,47 @@
 import Link from "next/link";
-import { Mark } from "./mark";
+import { stackSection } from "./section";
 
-const columns = [
-  {
-    title: "Product",
-    links: [
-      { label: "Sources", href: "#learn" },
-      { label: "Chat", href: "#workspace" },
-      { label: "Learn", href: "#learn" },
-      { label: "Workspaces", href: "#workspace" },
-    ],
-  },
-  {
-    title: "Account",
-    links: [
-      { label: "Log in", href: "/login" },
-      { label: "Sign up", href: "/login?mode=signup" },
-    ],
-  },
-];
-
-export function Footer() {
+export function HomeFooter() {
   return (
-    <footer className="border-t border-rule">
-      <div className="mx-auto max-w-[1120px] px-6 py-14">
-        <div className="grid gap-12 md:grid-cols-[1.4fr_1fr_1fr_1.3fr]">
-          <div>
-            <Link href="/" className="inline-flex items-center gap-2 font-medium">
-              <Mark />
-              Mosaic
+    <section className={`${stackSection} bg-inverse text-inverse`}>
+      <div data-sheet className="flex h-full w-full flex-col justify-end px-6 pt-24 pb-8 sm:px-10 lg:px-16">
+        <h2 className="max-w-5xl font-secondary text-6xl leading-[0.95] tracking-tight text-balance sm:text-8xl">
+          Bring the source.
+        </h2>
+        <div className="mt-10 grid w-full grid-cols-2 border-t border-[var(--border-inverse)]/25">
+          <div className="border-r border-[var(--border-inverse)]/25 py-8 pr-6 sm:pr-12 lg:py-10">
+            <p className="font-tertiary text-[11px] tracking-[0.16em] text-[var(--color-inverse)]/45">
+              THE PLACE
+            </p>
+            <p className="mt-4 max-w-md text-base leading-relaxed text-[var(--color-inverse)]/80 sm:text-lg">
+              An answer is only as good as the place it came from. A cell, a
+              timestamp, a line, or a page. Check that place instead of trusting
+              the summary.
+            </p>
+            <Link
+              href="/#path"
+              className="mt-6 inline-block text-sm text-accent underline underline-offset-4"
+            >
+              See how a citation is made
             </Link>
-            <p className="mt-3 max-w-xs text-sm leading-relaxed text-mute">
-              A private workspace for the sources you study.
-            </p>
           </div>
-
-          {columns.map((column) => (
-            <div key={column.title}>
-              <p className="font-mono text-[11px] tracking-[0.14em] text-mute">
-                {column.title.toUpperCase()}
-              </p>
-              <ul className="mt-4 space-y-2">
-                {column.links.map((link) => (
-                  <li key={link.label}>
-                    {link.href.startsWith("#") ? (
-                      <a href={link.href} className="text-sm text-ink">
-                        {link.label}
-                      </a>
-                    ) : (
-                      <Link href={link.href} className="text-sm text-ink">
-                        {link.label}
-                      </Link>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-
-          <div>
-            <p className="font-mono text-[11px] tracking-[0.14em] text-mute">
-              COLOPHON
+          <div className="py-8 pl-6 sm:pl-12 lg:py-10">
+            <p className="font-tertiary text-[11px] tracking-[0.16em] text-[var(--color-inverse)]/45">
+              THE DESK
             </p>
-            <p className="mt-4 text-sm leading-relaxed text-mute">
-              Newsreader and Geist. Set on a 12-column grid. Citations marked
-              in sienna.
+            <p className="mt-4 max-w-md text-base leading-relaxed text-[var(--color-inverse)]/80 sm:text-lg">
+              A workspace is private. Start with one file, a link, or a video.
+              The sources, the thread, and the cards stay on the same subject.
             </p>
+            <Link
+              href="/mosaic"
+              className="mt-6 inline-block text-sm text-accent underline underline-offset-4"
+            >
+              Open a workspace
+            </Link>
           </div>
         </div>
-
-        <p className="mt-12 border-t border-rule pt-6 font-mono text-[11px] text-mute">
-          © 2026 Mosaic · Sources stay in your workspace.
-        </p>
       </div>
-    </footer>
+    </section>
   );
 }

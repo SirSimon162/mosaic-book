@@ -1,73 +1,80 @@
 import Link from "next/link";
+import { stackSection } from "./section";
 
-const sources = [
-  "Attention Is All You Need.pdf",
-  "Lecture notes.md",
-  "Distillation notes",
-];
+const sources = ["results.xlsx", "Methods · YouTube", "field-notes.md"];
 
 export function Hero() {
   return (
-    <section className="mx-auto grid max-w-[1120px] items-center gap-14 px-6 py-16 lg:grid-cols-2 lg:py-24">
-      <div>
-        <p className="font-mono text-[11px] tracking-[0.18em] text-mute">
-          PRIVATE WORKSPACE
-        </p>
-        <h1 className="mt-4 font-serif text-[44px] leading-[1.05] tracking-tight text-balance text-ink sm:text-[56px]">
-          Ask the page you actually <em className="text-mark italic">read</em>.
-        </h1>
-        <p className="mt-6 max-w-xl text-lg leading-relaxed text-mute">
-          Mosaic is a workspace for your own material. Add a paper, a note, or
-          a link. Ask a question. The answer stays tied to the passage it came
-          from.
-        </p>
-        <div className="mt-8 flex items-center gap-5">
-          <Link
-            href="/login?mode=signup"
-            className="rounded-md bg-ink px-4 py-2 text-sm text-paper"
-          >
-            Sign up
-          </Link>
-          <a
-            href="#path"
-            className="text-sm text-ink underline decoration-rule underline-offset-4"
-          >
-            See the path
-          </a>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-[10px] border border-desk-line bg-desk text-cream shadow-[0_24px_50px_-28px_rgba(26,25,22,0.55)]">
-        <div className="border-b border-desk-line px-4 py-3">
-          <p className="font-mono text-[11px] tracking-[0.14em] text-cream/70">
-            WORKSPACE · TRANSFORMERS
+    <section data-hero className={`${stackSection} bg-inverse text-inverse`}>
+      <div className="pointer-events-none absolute top-16 right-[8%] size-72 rounded-full bg-[var(--color-accent)]/30 blur-3xl" />
+      <div
+        data-sheet
+        className="relative grid h-full w-full items-center gap-10 px-6 pt-24 sm:px-10 lg:grid-cols-2 lg:px-16"
+      >
+        <div>
+          <p className="inline-flex items-center gap-2 font-tertiary text-[11px] tracking-[0.18em] text-[var(--color-inverse)]/60">
+            <span className="live-dot size-1.5 rounded-full bg-accent" />
+            PRIVATE WORKSPACE
           </p>
+          <h1 className="mt-5 max-w-xl font-secondary text-5xl leading-[0.95] tracking-tight text-balance sm:text-7xl">
+            Ask the material you actually <em className="text-accent italic">have</em>.
+          </h1>
+          <p className="mt-6 max-w-lg text-lg leading-relaxed text-[var(--color-inverse)]/75">
+            Bring a document, a spreadsheet, a site, or a video. Ask about the
+            argument or the numbers. The answer stays tied to the place it came
+            from.
+          </p>
+          <div className="mt-8 flex items-center gap-5">
+            <Link
+              href="/mosaic"
+              className="rounded-full bg-accent px-5 py-2.5 text-sm text-on-accent"
+            >
+              Open Mosaic
+            </Link>
+            <a
+              href="#path"
+              className="text-sm text-inverse underline decoration-[var(--color-inverse)]/30 underline-offset-4"
+            >
+              See the path
+            </a>
+          </div>
         </div>
-        <div className="grid sm:grid-cols-[168px_1fr]">
-          <ul className="border-b border-desk-line sm:border-r sm:border-b-0">
-            {sources.map((source, index) => (
-              <li
-                key={source}
-                className={`border-l-2 px-3 py-3 font-mono text-[11px] leading-relaxed ${
-                  index === 0
-                    ? "border-mark text-cream"
-                    : "border-transparent text-cream/55"
-                }`}
-              >
-                {source}
-              </li>
-            ))}
-          </ul>
-          <div className="px-4 py-4">
-            <p className="font-mono text-[10px] tracking-[0.16em] text-cream/45">
-              ANSWER
+
+        <div className="overflow-hidden rounded-2xl border border-[var(--border-inverse)]/10 bg-secondary text-primary shadow-stage">
+          <div className="flex items-center justify-between gap-3 border-b border-primary px-4 py-3">
+            <p className="min-w-0 truncate font-tertiary text-[11px] tracking-[0.14em] text-secondary">
+              WORKSPACE · FIELD TRIAL
             </p>
-            <p className="mt-3 text-sm leading-relaxed">
-              A token can look across the sequence in one step, so recurrence
-              is no longer required to connect distant words.{" "}
-              <span className="text-mark">[1]</span> The notes flag the cost of
-              that full comparison. <span className="text-mark">[2]</span>
-            </p>
+            <span className="shrink-0 rounded-full bg-tertiary px-2 py-0.5 font-tertiary text-[10px] text-accent">
+              2 citations
+            </span>
+          </div>
+          <div className="grid sm:grid-cols-[168px_1fr]">
+            <ul className="border-b border-primary sm:border-r sm:border-b-0">
+              {sources.map((source, index) => (
+                <li
+                  key={source}
+                  className={`border-l-2 px-3 py-3 font-tertiary text-[11px] leading-relaxed ${
+                    index === 0
+                      ? "border-accent bg-tertiary text-primary"
+                      : "border-transparent text-secondary"
+                  }`}
+                >
+                  {source}
+                </li>
+              ))}
+            </ul>
+            <div className="px-4 py-4">
+              <p className="font-tertiary text-[10px] tracking-[0.16em] text-secondary">
+                ANSWER
+              </p>
+              <p className="mt-3 text-sm leading-relaxed">
+                On this sheet the treated mean sits 1.4 above the control.{" "}
+                <span className="font-medium text-accent">[1]</span> The lecture
+                says those are raw scores, not a fitted model.{" "}
+                <span className="font-medium text-accent">[2]</span>
+              </p>
+            </div>
           </div>
         </div>
       </div>

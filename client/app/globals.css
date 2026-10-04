@@ -1,48 +1,140 @@
 @import "tailwindcss";
 
+@custom-variant night (&:where([data-theme="night"] *));
+
 :root {
-  --paper: #f3f0e8;
-  --sheet: #fbfaf6;
-  --ink: #1a1916;
-  --mute: #6f6a62;
-  --rule: #e4dfd4;
-  --mark: #9a3412;
-  --desk: #241f1a;
-  --cream: #f3ede4;
-  --desk-line: rgb(243 237 228 / 0.14);
+  --font-primary: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-secondary: var(--font-newsreader), ui-serif, georgia, serif;
+  --font-tertiary: var(--font-geist-mono), ui-monospace, monospace;
+
+  --color-primary: #121722;
+  --color-secondary: #5c6675;
+  --color-accent: #3a4bff;
+  --color-inverse: #f4f7fb;
+  --color-on-accent: #ffffff;
+
+  --bg-primary: #f4f6f9;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e7ebff;
+  --bg-inverse: #10151f;
+  --bg-accent: var(--color-accent);
+
+  --border-primary: #e4e8ef;
+  --border-accent: var(--color-accent);
+  --border-inverse: var(--color-on-accent);
+
+  --shadow-lift: 0 10px 30px -12px color-mix(in srgb, var(--bg-inverse) 35%, transparent);
+  --shadow-menu: 0 18px 50px -16px color-mix(in srgb, var(--bg-inverse) 40%, transparent);
+  --shadow-accent: 0 18px 40px -24px color-mix(in srgb, var(--color-accent) 85%, transparent);
+  --shadow-stage: 0 30px 80px -24px color-mix(in srgb, var(--bg-inverse) 55%, transparent);
+  --shadow-stage-deep: 0 30px 80px -28px color-mix(in srgb, var(--bg-inverse) 65%, transparent);
+
   color-scheme: light;
 }
 
 :root[data-theme="night"] {
-  --paper: #161411;
-  --sheet: #1e1b17;
-  --ink: #f3ede4;
-  --mute: #a39a8e;
-  --rule: #3a342c;
-  --mark: #e0a15a;
-  --desk: #100e0c;
-  --cream: #f3ede4;
-  --desk-line: rgb(243 237 228 / 0.14);
+  --color-primary: #eef2f8;
+  --color-secondary: #a3adbd;
+  --color-accent: #9aa8ff;
+  --color-inverse: #f4f7fb;
+  --color-on-accent: #ffffff;
+
+  --bg-primary: #0c1018;
+  --bg-secondary: #171e2c;
+  --bg-tertiary: #12182a;
+  --bg-inverse: #07090f;
+
+  --border-primary: #2c3548;
+
   color-scheme: dark;
 }
 
 @theme inline {
-  --color-paper: var(--paper);
-  --color-sheet: var(--sheet);
-  --color-ink: var(--ink);
-  --color-mute: var(--mute);
-  --color-rule: var(--rule);
-  --color-mark: var(--mark);
-  --color-desk: var(--desk);
-  --color-cream: var(--cream);
-  --color-desk-line: var(--desk-line);
-  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
-  --font-serif: var(--font-newsreader), ui-serif, georgia, serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-primary: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-secondary: var(--font-newsreader), ui-serif, georgia, serif;
+  --font-tertiary: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+@utility text-primary {
+  color: var(--color-primary);
+}
+
+@utility text-secondary {
+  color: var(--color-secondary);
+}
+
+@utility text-accent {
+  color: var(--color-accent);
+}
+
+@utility text-inverse {
+  color: var(--color-inverse);
+}
+
+@utility text-on-accent {
+  color: var(--color-on-accent);
+}
+
+@utility bg-primary {
+  background-color: var(--bg-primary);
+}
+
+@utility bg-secondary {
+  background-color: var(--bg-secondary);
+}
+
+@utility bg-tertiary {
+  background-color: var(--bg-tertiary);
+}
+
+@utility bg-inverse {
+  background-color: var(--bg-inverse);
+}
+
+@utility bg-accent {
+  background-color: var(--bg-accent);
+}
+
+@utility border-primary {
+  border-color: var(--border-primary);
+}
+
+@utility border-accent {
+  border-color: var(--border-accent);
+}
+
+@utility decoration-accent {
+  text-decoration-color: var(--color-accent);
+}
+
+@utility divide-primary {
+  & > :not(:last-child) {
+    border-color: var(--border-primary);
+  }
+}
+
+@utility shadow-lift {
+  box-shadow: var(--shadow-lift);
+}
+
+@utility shadow-menu {
+  box-shadow: var(--shadow-menu);
+}
+
+@utility shadow-accent {
+  box-shadow: var(--shadow-accent);
+}
+
+@utility shadow-stage {
+  box-shadow: var(--shadow-stage);
+}
+
+@utility shadow-stage-deep {
+  box-shadow: var(--shadow-stage-deep);
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--mark) 28%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent);
 }
 
 @keyframes cite {
@@ -51,17 +143,35 @@
     background-color: transparent;
   }
   40% {
-    background-color: color-mix(in srgb, var(--mark) 28%, transparent);
+    background-color: color-mix(in srgb, var(--color-accent) 32%, transparent);
+  }
+}
+
+@keyframes live-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
   }
 }
 
 .cite-pulse {
-  animation: cite 3.6s ease-in-out infinite;
+  animation: cite 3.2s ease-in-out infinite;
+}
+
+.live-dot {
+  animation: live-dot 2.2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cite-pulse {
+  .cite-pulse,
+  .live-dot {
     animation: none;
-    background-color: color-mix(in srgb, var(--mark) 18%, transparent);
+  }
+
+  .cite-pulse {
+    background-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
   }
 }
