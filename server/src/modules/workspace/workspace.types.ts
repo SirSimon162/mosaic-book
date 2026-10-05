@@ -69,3 +69,21 @@ export const publicWorkspaceDetailsSchema = publicWorkspaceSchema.extend({
 export type PublicWorkspaceDetails = z.infer<
   typeof publicWorkspaceDetailsSchema
 >;
+
+export const createSourceSchema = z.object({
+  type: z.enum(SourceType),
+  title:  z.string().trim().min(1).max(100),
+  content: z.string().min(1)
+}).strict();
+
+export type CreateSourceInput = z.infer<typeof createSourceSchema>
+
+export const publicSourceSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  workspaceId: z.string(),
+  type: z.enum(SourceType),
+  status: z.enum(SourceStatus),
+}).strict();
+
+export type PublicSource = z.infer<typeof publicSourceSchema>

@@ -1,5 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
-import { CreateWorkspaceInput } from "./workspace.types.js";
+import { CreateWorkspaceInput, SourceType } from "./workspace.types.js";
 
 export async function createNewWorkspace(
   userId: string,
@@ -86,4 +86,24 @@ export async function getWorkspaceById(workspaceId: string, userId: string) {
     },
   });
   return workspace;
+}
+
+export async function createNewSource(workspaceId: string, type: SourceType, title: string, content: string) {
+  const source = await prisma.source.create({
+    data: {
+      workspaceId,
+      type,
+      title,
+      source: content
+    },
+    include: {
+      workspace: {
+        select: {
+          id: true,
+          name: true,
+        }
+      }
+    }
+  })
+  return source
 }

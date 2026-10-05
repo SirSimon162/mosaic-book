@@ -5,6 +5,7 @@ import {
   createNewWorkspace,
   getWorkspacesByUserId,
   getWorkspaceById,
+  createNewSource,
 } from "./workspace.repository.js";
 import {
   CreateWorkspaceInput,
@@ -13,6 +14,8 @@ import {
   PublicWorkspaceDetails,
   SourceStatus,
   SourceType,
+  CreateSourceInput,
+  PublicSource,
 } from "./workspace.types.js";
 
 export async function createWorkspace(
@@ -75,4 +78,15 @@ export async function getWorkspace(
       status: source.status as SourceStatus,
     })),
   };
+}
+
+export async function createSource( workspaceId: string, input: CreateSourceInput): Promise<PublicSource> {
+  const source = await createNewSource(workspaceId, input.type, input.title, input.content)
+  return {
+    id: source.id,
+    title: source.title,
+    workspaceId: source.workspaceId,
+    type: source.type as SourceType,
+    status: source.status as SourceStatus
+  }
 }

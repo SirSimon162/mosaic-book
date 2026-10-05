@@ -1,8 +1,9 @@
 import express, { type Router } from "express";
-import { createWorkspaceSchema } from "./workspace.types.js";
+import { createSourceSchema, createWorkspaceSchema } from "./workspace.types.js";
 import { sendFail, sendSuccess } from "../../lib/api-response.js";
 import { Status } from "../../lib/http-code.js";
 import {
+  createSource,
   createWorkspace,
   getWorkspace,
   getWorkspaces,
@@ -18,6 +19,20 @@ workspaceRoutes.post("/create", async (req, res) => {
   }
   const workspace = await createWorkspace(req.userId!, input.data);
   return sendSuccess(res, Status.CREATED, workspace);
+});
+
+workspaceRoutes.post("/:workspaceId/source", async (req, res) => {
+  const input = createSourceSchema.safeParse(req.body);
+  if (!input.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid Input")
+  }
+  const { workspaceId } = req.params;
+  if (!workspaceId) {
+    throw new AppError("Workspace ID is required", Status.BAD_REQUEST);
+  }
+  const workspace = await getWorkspace(workspaceId, req.userId!);
+  const source = await createSource(workspaceId, input.data)
+  return sendSuccess(res, Status.CREATED, source)
 });
 
 workspaceRoutes.get("/", async (req, res) => {
