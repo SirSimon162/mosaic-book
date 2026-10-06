@@ -87,3 +87,12 @@ export const publicSourceSchema = z.object({
 }).strict();
 
 export type PublicSource = z.infer<typeof publicSourceSchema>
+
+export const publicSourceDetailsSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  source: z.string(),
+  type: z.enum(SourceType),
+})
+
+export type PublicSourceDetails = z.infer<typeof publicSourceDetailsSchema>

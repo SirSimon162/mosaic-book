@@ -107,3 +107,28 @@ export async function createNewSource(workspaceId: string, type: SourceType, tit
   })
   return source
 }
+
+export async function getSourceById(workspaceId: string, sourceId: string) {
+  const source = await prisma.source.findFirst({
+    where: {
+      id: sourceId,
+      workspaceId: workspaceId
+    },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      source: true,
+    }
+  })
+  return source
+}
+
+export async function deleteSourceById(workspaceId: string, sourceId: string) {
+  await prisma.source.delete({
+    where: {
+      id: sourceId,
+      workspaceId: workspaceId
+    }
+  })
+}

@@ -5,6 +5,8 @@ import { Status } from "../../lib/http-code.js";
 import {
   createSource,
   createWorkspace,
+  deleteSource,
+  getSource,
   getWorkspace,
   getWorkspaces,
 } from "./workspace.service.js";
@@ -34,6 +36,26 @@ workspaceRoutes.post("/:workspaceId/source", async (req, res) => {
   const source = await createSource(workspaceId, input.data)
   return sendSuccess(res, Status.CREATED, source)
 });
+
+workspaceRoutes.get("/:workspaceId/source/:sourceId", async (req, res) => {
+  const { workspaceId, sourceId } = req.params
+  if (!workspaceId || !sourceId) {
+    throw new AppError("Workspace ID and Source ID are required", Status.BAD_REQUEST);
+  }
+  await getWorkspace(workspaceId, req.userId!)
+  const sourceDetails = await getSource(workspaceId, sourceId)
+  return sendSuccess(res, Status.OK, sourceDetails)
+})
+
+workspaceRoutes.delete("/:workspaceId/source/:sourceId", async (req, res) => {
+  const { workspaceId, sourceId } = req.params
+  if (!workspaceId || !sourceId) {
+    throw new AppError("Workspace ID and Source ID are required", Status.BAD_REQUEST);
+  }
+  await getWorkspace(workspaceId, req.userId!)
+  await deleteSource(workspaceId, sourceId)
+  return sendSuccess(res, Status.OK, null)
+})
 
 workspaceRoutes.get("/", async (req, res) => {
   const workspaces = await getWorkspaces(req.userId!);

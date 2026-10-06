@@ -6,6 +6,8 @@ import {
   getWorkspacesByUserId,
   getWorkspaceById,
   createNewSource,
+  deleteSourceById,
+  getSourceById,
 } from "./workspace.repository.js";
 import {
   CreateWorkspaceInput,
@@ -16,6 +18,7 @@ import {
   SourceType,
   CreateSourceInput,
   PublicSource,
+  PublicSourceDetails,
 } from "./workspace.types.js";
 
 export async function createWorkspace(
@@ -80,7 +83,7 @@ export async function getWorkspace(
   };
 }
 
-export async function createSource( workspaceId: string, input: CreateSourceInput): Promise<PublicSource> {
+export async function createSource(workspaceId: string, input: CreateSourceInput): Promise<PublicSource> {
   const source = await createNewSource(workspaceId, input.type, input.title, input.content)
   return {
     id: source.id,
@@ -89,4 +92,21 @@ export async function createSource( workspaceId: string, input: CreateSourceInpu
     type: source.type as SourceType,
     status: source.status as SourceStatus
   }
+}
+
+export async function getSource(workspaceId: string, sourceId: string): Promise<PublicSourceDetails> {
+  const source = await getSourceById(workspaceId, sourceId)
+  if (!source) {
+    throw new AppError("Source not found", Status.NOT_FOUND)
+  }
+  return {
+    id: source.id,
+    title: source.title,
+    type: source.type as SourceType,
+    source: source.source || ""
+  }
+}
+
+export async function deleteSource(workspaceId: string, sourceId: string) {
+  await deleteSourceById(workspaceId, sourceId)
 }
