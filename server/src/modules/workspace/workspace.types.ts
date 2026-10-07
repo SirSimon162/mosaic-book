@@ -38,6 +38,7 @@ export enum SourceType {
   PDF = "PDF",
   DOC = "DOC",
   CSV = "CSV",
+  JSON = "JSON",
   YOUTUBE = "YOUTUBE",
   WEBSITE = "WEBSITE",
 }
@@ -70,29 +71,56 @@ export type PublicWorkspaceDetails = z.infer<
   typeof publicWorkspaceDetailsSchema
 >;
 
-export const createSourceSchema = z.object({
-  type: z.enum(SourceType),
-  title:  z.string().trim().min(1).max(100),
-  content: z.string().min(1)
-}).strict();
+export const createSourceSchema = z
+  .object({
+    type: z.enum([SourceType.TEXT, SourceType.MARKDOWN]),
+    title: z.string().trim().min(1).max(100),
+    content: z.string().min(1).max(10_000, {
+      message: "Content too long. Please upload a file instead.",
+    }),
+  })
+  .strict();
 
-export type CreateSourceInput = z.infer<typeof createSourceSchema>
+export type CreateSourceInput = z.infer<typeof createSourceSchema>;
 
-export const publicSourceSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  workspaceId: z.string(),
-  type: z.enum(SourceType),
-  status: z.enum(SourceStatus),
-}).strict();
+export const uploadSourceSchema = z
+  .object({
+    type: z.enum([
+      SourceType.PDF,
+      SourceType.DOC,
+      SourceType.CSV,
+    ]),
+    title: z.string().trim().min(1).max(100),
+  })
+  .strict();
 
-export type PublicSource = z.infer<typeof publicSourceSchema>
+export type UploadSourceInput = z.infer<typeof uploadSourceSchema>;
+
+export type CreateSourcePayload = {
+  type: SourceType;
+  title: string;
+  content?: string;
+  fileUrl?: string;
+};
+
+export const publicSourceSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    workspaceId: z.string(),
+    type: z.enum(SourceType),
+    status: z.enum(SourceStatus),
+  })
+  .strict();
+
+export type PublicSource = z.infer<typeof publicSourceSchema>;
 
 export const publicSourceDetailsSchema = z.object({
   id: z.string(),
   title: z.string(),
-  source: z.string(),
+  source: z.string().nullable(),
+  fileUrl: z.string().nullable(),
   type: z.enum(SourceType),
-})
+});
 
-export type PublicSourceDetails = z.infer<typeof publicSourceDetailsSchema>
+export type PublicSourceDetails = z.infer<typeof publicSourceDetailsSchema>;

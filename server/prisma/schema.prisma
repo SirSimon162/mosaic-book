@@ -58,6 +58,7 @@ enum SourceType {
   PDF
   DOC
   CSV
+  JSON
   YOUTUBE
   WEBSITE
 }
@@ -74,6 +75,7 @@ model Source {
   workspaceId String
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   source      String?
+  fileUrl     String?
   type        SourceType
   title       String       @default("My Mosaic")
   status      SourceStatus @default(PENDING)

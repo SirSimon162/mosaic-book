@@ -5,130 +5,162 @@ export async function createNewWorkspace(
   userId: string,
   input: CreateWorkspaceInput,
 ) {
-  const workspace = await prisma.workspace.create({
-    data: {
-      name: input.name,
-      ownerId: userId,
-      users: {
-        connect: {
-          id: userId,
+  try {
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: input.name,
+        ownerId: userId,
+        users: {
+          connect: {
+            id: userId,
+          },
         },
       },
-    },
-    include: {
-      users: {
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          role: true,
+      include: {
+        users: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+          },
         },
       },
-    },
-  });
-  return workspace;
+    });
+    return workspace;
+  } catch (e) {
+    throw e
+  }
 }
 
 export async function getWorkspacesByUserId(userId: string) {
-  const workspaces = await prisma.workspace.findMany({
-    where: {
-      users: {
-        some: {
-          id: userId,
+  try {
+    const workspaces = await prisma.workspace.findMany({
+      where: {
+        users: {
+          some: {
+            id: userId,
+          },
         },
       },
-    },
-    orderBy: {
-      updatedAt: "desc",
-    },
-  });
-  return workspaces;
+      orderBy: {
+        updatedAt: "desc",
+      },
+    });
+    return workspaces;
+  } catch (e) {
+    throw e
+  }
 }
 
 export async function getWorkspaceById(workspaceId: string, userId: string) {
-  const workspace = await prisma.workspace.findUnique({
-    where: {
-      id: workspaceId,
-      users: {
-        some: {
-          id: userId,
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: {
+        id: workspaceId,
+        users: {
+          some: {
+            id: userId,
+          },
         },
       },
-    },
-    include: {
-      users: {
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          role: true,
+      include: {
+        users: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+          },
+        },
+        chats: {
+          select: {
+            id: true,
+            title: true,
+          },
+          orderBy: {
+            updatedAt: "desc",
+          },
+        },
+        sources: {
+          select: {
+            id: true,
+            title: true,
+            type: true,
+            status: true,
+          },
         },
       },
-      chats: {
-        select: {
-          id: true,
-          title: true,
-        },
-        orderBy: {
-          updatedAt: "desc",
-        },
-      },
-      sources: {
-        select: {
-          id: true,
-          title: true,
-          type: true,
-          status: true,
-        },
-      },
-    },
-  });
-  return workspace;
+    });
+    return workspace;
+  } catch (e) {
+    throw e
+  }
 }
 
-export async function createNewSource(workspaceId: string, type: SourceType, title: string, content: string) {
-  const source = await prisma.source.create({
-    data: {
-      workspaceId,
-      type,
-      title,
-      source: content
-    },
-    include: {
-      workspace: {
-        select: {
-          id: true,
-          name: true,
-        }
-      }
-    }
-  })
-  return source
+export async function createNewSource(
+  workspaceId: string,
+  type: SourceType,
+  title: string,
+  content?: string,
+  fileUrl?: string,
+) {
+  try {
+    const source = await prisma.source.create({
+      data: {
+        workspaceId,
+        type,
+        title,
+        source: content ?? null,
+        fileUrl: fileUrl ?? null,
+      },
+      include: {
+        workspace: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+    return source;
+  } catch (e) {
+    throw e;
+  }
 }
 
 export async function getSourceById(workspaceId: string, sourceId: string) {
-  const source = await prisma.source.findFirst({
-    where: {
-      id: sourceId,
-      workspaceId: workspaceId
-    },
-    select: {
-      id: true,
-      title: true,
-      type: true,
-      source: true,
-    }
-  })
-  return source
+  try {
+    const source = await prisma.source.findFirst({
+      where: {
+        id: sourceId,
+        workspaceId: workspaceId,
+      },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        source: true,
+        fileUrl: true,
+      },
+    });
+    return source;
+  } catch (e) {
+    throw e
+  }
 }
 
 export async function deleteSourceById(workspaceId: string, sourceId: string) {
-  await prisma.source.delete({
-    where: {
-      id: sourceId,
-      workspaceId: workspaceId
-    }
-  })
+  try {
+    await prisma.source.delete({
+      where: {
+        id: sourceId,
+        workspaceId: workspaceId
+      }
+    })
+  } catch (e) {
+    throw e
+  }
 }

@@ -16,7 +16,7 @@ import {
   PublicWorkspaceDetails,
   SourceStatus,
   SourceType,
-  CreateSourceInput,
+  CreateSourcePayload,
   PublicSource,
   PublicSourceDetails,
 } from "./workspace.types.js";
@@ -83,28 +83,41 @@ export async function getWorkspace(
   };
 }
 
-export async function createSource(workspaceId: string, input: CreateSourceInput): Promise<PublicSource> {
-  const source = await createNewSource(workspaceId, input.type, input.title, input.content)
+export async function createSource(
+  workspaceId: string,
+  input: CreateSourcePayload,
+): Promise<PublicSource> {
+  const source = await createNewSource(
+    workspaceId,
+    input.type,
+    input.title,
+    input.content,
+    input.fileUrl,
+  );
   return {
     id: source.id,
     title: source.title,
     workspaceId: source.workspaceId,
     type: source.type as SourceType,
-    status: source.status as SourceStatus
-  }
+    status: source.status as SourceStatus,
+  };
 }
 
-export async function getSource(workspaceId: string, sourceId: string): Promise<PublicSourceDetails> {
-  const source = await getSourceById(workspaceId, sourceId)
+export async function getSource(
+  workspaceId: string,
+  sourceId: string,
+): Promise<PublicSourceDetails> {
+  const source = await getSourceById(workspaceId, sourceId);
   if (!source) {
-    throw new AppError("Source not found", Status.NOT_FOUND)
+    throw new AppError("Source not found", Status.NOT_FOUND);
   }
   return {
     id: source.id,
     title: source.title,
     type: source.type as SourceType,
-    source: source.source || ""
-  }
+    source: source.source,
+    fileUrl: source.fileUrl,
+  };
 }
 
 export async function deleteSource(workspaceId: string, sourceId: string) {
