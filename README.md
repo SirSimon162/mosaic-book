@@ -46,7 +46,7 @@ Initial entry actions (product framing):
                     ▼                        ▼                        ▼
               PostgreSQL                 Pinecone                  Providers
               (Prisma)                   (vectors)                 (OpenAI,
-              users, workspaces,                                   Cloudinary,
+              users, workspaces,         (planned)                 Cloudinary ✓,
               sources, chats,                                      Firecrawl,
               (chunks/messages                                     Tavily,
                later)                                              YouTube, Mem0)
@@ -54,10 +54,12 @@ Initial entry actions (product framing):
 
 ### Two pipelines (do not mix)
 
-**1. Ingest (async)**  
+**1. Ingest (async)** — *designed; not built yet*  
 Add source → persist row (`PENDING`) → extract text → chunk → embed → upsert Pinecone → `COMPLETED` / `FAILED`.
 
-**2. Query (request path)**  
+Today, creating a text source or uploading a file only **persists** the row (and Cloudinary URL when applicable). Status stays `PENDING` until the ingest worker exists.
+
+**2. Query (request path)** — *planned*  
 User question → query embedding → similarity search (top-k) → LLM with retrieved passages → answer (+ citations).
 
 Optional later: **Mem0** for cross-chat memory; **Tavily** as a query-time web search tool (not the same as indexing a saved source).
@@ -70,7 +72,7 @@ Optional later: **Mem0** for cross-chat memory; **Tavily** as a query-time web s
 |---------|---------|
 | **User** | Account (email + password hash, profile fields, role) |
 | **Workspace** | Container for sources and chats; has an **owner** and optional **members** |
-| **Source** | One material + `type` + `status` + optional `source` payload (text body or URL) |
+| **Source** | One material + `type` + `status` + optional `source` (inline text / URL) and/or `fileUrl` (Cloudinary) |
 | **Chat** | Conversation thread in a workspace; `userId` = who created it |
 | **Chunk** | Text slice of a source (planned; not in DB yet) |
 | **Message** | User / assistant turns (planned; not in DB yet) |
@@ -78,12 +80,13 @@ Optional later: **Mem0** for cross-chat memory; **Tavily** as a query-time web s
 
 ### Source types (`SourceType`)
 
-| Enum | Typical ingest |
-|------|----------------|
-| `TEXT` / `MARKDOWN` | Body stored in `source` → shared pipeline |
-| `PDF` / `DOC` / `CSV` | File upload (e.g. Cloudinary) → extract → shared pipeline |
-| `WEBSITE` | Firecrawl → text → shared pipeline |
-| `YOUTUBE` | Transcript package → text → shared pipeline |
+| Enum | How it enters the API today | Typical ingest (later) |
+|------|----------------------------|------------------------|
+| `TEXT` / `MARKDOWN` | JSON body → `source` column | Shared pipeline |
+| `PDF` / `DOC` / `CSV` | Multipart upload → Cloudinary → `fileUrl` | Download / extract → shared pipeline |
+| `JSON` | Schema-ready; upload allowlist includes `.json` | Same as other files |
+| `WEBSITE` | Not wired yet | Firecrawl → text → shared pipeline |
+| `YOUTUBE` | Not wired yet | Transcript → text → shared pipeline |
 
 **Web search (Tavily)** stays a **query-time** tool, not a `SourceType`.
 
@@ -121,7 +124,8 @@ Source
   ├── type        → SourceType
   ├── status      → SourceStatus (default PENDING)
   ├── title       (default "My Mosaic")
-  └── source      String?  (URL or inline text, depending on type)
+  ├── source      String?  (inline text or URL, depending on type)
+  └── fileUrl     String?  (Cloudinary delivery URL for uploads)
 ```
 
 Still to add when building RAG / chat messages: `Chunk`, `Message`, `Artifact`, and any Pinecone id fields you want mirrored in Postgres.
@@ -150,10 +154,13 @@ User question → embed query → Pinecone top-k → prompt + passages → LLM �
 - Every API that touches workspace data must assert:  
   `req.userId` is **owner** or **member** of that workspace.
 - Do **not** authorize chat access with `chat.userId === req.userId` alone if members should share threads.
+- File upload: **membership check runs before multer/Cloudinary** so a bad workspace id never creates an orphan blob.
 
 ### Delete semantics
 
-Deleting a source must remove Postgres rows (and future chunks) **and** corresponding Pinecone vectors. Deleting a workspace cascades chats/sources in Postgres; vectors for that namespace must be cleared in app code.
+- **Source delete (today):** best-effort Cloudinary destroy when `fileUrl` is set, then delete the Postgres row. Pinecone cleanup lands with ingest.
+- **Source delete (later):** also remove corresponding Pinecone vectors (and future chunk rows).
+- **Workspace delete:** cascades chats/sources in Postgres; vectors for that namespace must be cleared in app code when RAG exists.
 
 ---
 
@@ -177,26 +184,47 @@ Stateless **JWT in an `httpOnly` cookie**.
 - JWT payload: `{ sub, role, email }`.
 - Cookie: `httpOnly`, `sameSite: "lax"`, `secure` in production.
 - Envelope: `{ success: true, result }` / `{ success: false, error }`.
-- Errors: `AppError` + `Status.*`; `requireAuth` sets `req.userId`.
+- Errors: `AppError` + `Status.*`; central `errorHandler`. Prefer throw + bubble — not `try/catch` that only rethrows.
+- `requireAuth` sets `req.userId`.
+
+---
+
+## Workspace & sources (implemented)
+
+All under `/api/workspace`, behind `requireAuth`. Membership = owner or member (`getWorkspace` / `requireWorkspaceAccess`).
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/workspace/create` | Create workspace; creator is owner + member |
+| `GET` | `/api/workspace/` | List workspaces for current user |
+| `GET` | `/api/workspace/:id` | Workspace details (users, chats stub, sources list) |
+| `POST` | `/api/workspace/:workspaceId/source` | Create `TEXT` / `MARKDOWN` source (JSON: `type`, `title`, `content`) |
+| `POST` | `/api/workspace/:workspaceId/source/upload` | Multipart: `file` + `type` + `title` (`PDF` / `DOC` / `CSV`); Cloudinary → `fileUrl` |
+| `GET` | `/api/workspace/:workspaceId/source/:sourceId` | Source details (`source`, `fileUrl`, …) |
+| `DELETE` | `/api/workspace/:workspaceId/source/:sourceId` | Delete source (+ best-effort Cloudinary) |
+
+Upload order: `requireWorkspaceAccess` → `multer` (Cloudinary storage, ~20 MB limit) → persist row.
 
 ### Server layout (current)
 
 ```
 server/src/
   app.ts / server.ts
-  config/
-  lib/             # prisma, AppError, Status, api-response
+  config/          # env (incl. Cloudinary keys)
+  lib/             # prisma, AppError, Status, api-response, cloudinary-config
   middleware/      # errorHandler, notFound, requireAuth
   utils/           # hash, jwt, cookies
   modules/
     auth/
     user/
     health/
+    workspace/     # routes, service, repository, types
   routes/
   types/
+  generated/prisma/
 ```
 
-Layering: **route → service → repository → Prisma** (providers later).
+Layering: **route → service → repository → Prisma** (external providers in `lib/` for now).
 
 ---
 
@@ -205,18 +233,20 @@ Layering: **route → service → repository → Prisma** (providers later).
 | Module | Responsibility | Status |
 |--------|----------------|--------|
 | `auth` / `user` / `health` | Account + profile + liveness | Done |
-| `workspace` | Create / list / get; enforce owner/member | **Next** |
-| `source` | CRUD-ish, status, trigger ingest | Schema only |
+| `workspace` | Create / list / get; enforce owner/member | Done |
+| sources (inside `workspace`) | Text/md create; file upload; get; delete | Done (persist only; no ingest) |
+| website / YouTube source adapters | URL → extract → same Source row | **Next** (or ingest next) |
 | `chat` | Threads, messages, ask (RAG) | Schema stub |
 | `learn` | Artifacts | Later |
 | `rag` / `lib/rag` | Chunk, embed, Pinecone, prompts | Later |
-| `lib/providers/` | Cloudinary, Firecrawl, OpenAI, Tavily, YT, Mem0 | Later |
+| `lib/providers/` | Firecrawl, OpenAI, Tavily, YT, Mem0 | Later |
+| Cloudinary | Upload + delete helpers | Done (wired for file sources) |
 
 ---
 
 ## Workspace settings (later)
 
-Optional fields or JSON on `Workspace`, e.g. default model, `topK`, Tavily on/off. Not required for the first workspace API.
+Optional fields or JSON on `Workspace`, e.g. default model, `topK`, Tavily on/off. Not required for the current workspace API.
 
 ---
 
@@ -236,14 +266,15 @@ Client: Next.js with `credentials: "include"`.
 | Step | Milestone | Notes |
 |------|-----------|--------|
 | ✅ | Auth + health | Done |
-| ✅ | Prisma: Workspace, Chat, Source | Migrated |
-| **→ 1** | **Workspace API** | Create, list, get; `requireAuth`; owner + connect as member |
-| 2 | Dashboard + shell UI | Nav only; may hide multi-workspace switcher |
-| 3 | Source API (text/md) | Create with `PENDING`; no vectors yet |
-| 4 | Ingest pipeline | Chunk → embed → Pinecone → `COMPLETED` / `FAILED` |
-| 5 | Chat + RAG ask | Messages + retrieval in workspace namespace |
-| 6 | PDF / web / YT adapters | Same ingest pipeline |
-| 7 | Tavily, Learn, Mem0, rate limits | Hardening and extras |
+| ✅ | Prisma: Workspace, Chat, Source (+ `fileUrl`) | Migrated |
+| ✅ | Workspace API | Create, list, get; membership checks |
+| ✅ | Source API (text/md) | Create with `PENDING`; content in `source` |
+| ✅ | File upload (PDF / DOC / CSV) | Cloudinary `fileUrl`; authz before upload |
+| **→ 1** | **Remaining source types** | Website / YouTube (store URL in `source`) |
+| **→ 2** | **Ingest pipeline** | Extract → chunk → embed → Pinecone → `COMPLETED` / `FAILED` |
+| 3 | Chat + RAG ask | Messages + retrieval in workspace namespace |
+| 4 | Dashboard + shell UI | May hide multi-workspace switcher |
+| 5 | Tavily, Learn, Mem0, rate limits | Hardening and extras |
 
 Ingest stays **async**: return source id + `PENDING`, process in the background.
 
@@ -254,15 +285,18 @@ Ingest stays **async**: return source id + `PENDING`, process in the background.
 - Enforce **owner or member** on every workspace-scoped route.  
 - Never return `passwordHash`.  
 - JWT logout clears the cookie only; tokens remain valid until `exp`.  
-- `httpOnly` cookies cannot be cleared from the frontend — use `POST /api/auth/logout`.
+- `httpOnly` cookies cannot be cleared from the frontend — use `POST /api/auth/logout`.  
+- Do not upload to Cloudinary before membership is confirmed.
 
 ---
 
 ## Environment (server)
 
-**Auth (required today):** `DATABASE_URL`, `JWT_SECRET`, optional `PORT`, `JWT_EXPIRES_IN`, `NODE_ENV`.
+**Required:** `DATABASE_URL`, `JWT_SECRET`, Cloudinary (`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`).
 
-**Later:** OpenAI, Pinecone, Cloudinary, Firecrawl, Tavily, Mem0 keys.
+**Optional:** `PORT`, `JWT_EXPIRES_IN`, `NODE_ENV`.
+
+**Later:** OpenAI, Pinecone, Firecrawl, Tavily, Mem0 keys.
 
 ---
 
@@ -271,7 +305,7 @@ Ingest stays **async**: return source id + `PENDING`, process in the background.
 ```
 mosaic-research/
   README.md
-  server/     ← Express + Prisma (auth live; workspace API next)
+  server/     ← Express + Prisma (auth, workspace, sources live)
   client/     ← Next.js (as present in the monorepo)
 ```
 
@@ -283,8 +317,10 @@ mosaic-research/
 |------|--------|
 | Auth (register, login, logout, me) | Implemented |
 | Health | Implemented |
-| Prisma: User, Workspace, Chat, Source | **Migrated** |
-| Workspace / source / chat HTTP APIs | Not implemented |
+| Prisma: User, Workspace, Chat, Source | Migrated (`fileUrl` on Source) |
+| Workspace HTTP API | Implemented |
+| Source HTTP API (text/md + file upload + get/delete) | Implemented (no ingest yet) |
+| Website / YouTube sources | Not implemented |
 | RAG / Pinecone / Learn / Mem0 | Designed only |
 | Rate limiting | Deferred |
 | Multi-workspace UI / invites | Schema-ready; UI later |

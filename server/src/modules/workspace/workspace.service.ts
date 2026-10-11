@@ -19,6 +19,7 @@ import {
   CreateSourcePayload,
   PublicSource,
   PublicSourceDetails,
+  CreateSourceRow
 } from "./workspace.types.js";
 
 export async function createWorkspace(
@@ -33,7 +34,7 @@ export async function createWorkspace(
     users: workspace.users.map((user) => ({
       id: user.id,
       email: user.email,
-      role: user.role as UserRole,
+      role: user.role,
       firstName: user.firstName,
       lastName: user.lastName,
     })),
@@ -66,7 +67,7 @@ export async function getWorkspace(
     users: workspace.users.map((user) => ({
       id: user.id,
       email: user.email,
-      role: user.role as UserRole,
+      role: user.role,
       firstName: user.firstName,
       lastName: user.lastName,
     })),
@@ -77,29 +78,52 @@ export async function getWorkspace(
     sources: workspace.sources.map((source) => ({
       id: source.id,
       title: source.title,
-      type: source.type as SourceType,
-      status: source.status as SourceStatus,
+      type: source.type,
+      status: source.status,
     })),
   };
+}
+
+function toSourceRow(input: CreateSourcePayload): CreateSourceRow {
+  switch (input.type) {
+    case SourceType.TEXT:
+    case SourceType.MARKDOWN:
+      return {
+        type: input.type,
+        title: input.title,
+        source: input.content,
+        fileUrl: null,
+      };
+    case SourceType.PDF:
+    case SourceType.DOC:
+    case SourceType.CSV:
+      return {
+        type: input.type,
+        title: input.title,
+        source: null,
+        fileUrl: input.fileUrl,
+      };
+    case SourceType.WEBSITE:
+      return {
+        type: input.type,
+        title: input.title,
+        source: input.url,
+        fileUrl: null,
+      };
+  }
 }
 
 export async function createSource(
   workspaceId: string,
   input: CreateSourcePayload,
 ): Promise<PublicSource> {
-  const source = await createNewSource(
-    workspaceId,
-    input.type,
-    input.title,
-    input.content,
-    input.fileUrl,
-  );
+  const source = await createNewSource(workspaceId, toSourceRow(input));
   return {
     id: source.id,
     title: source.title,
     workspaceId: source.workspaceId,
-    type: source.type as SourceType,
-    status: source.status as SourceStatus,
+    type: source.type,
+    status: source.status,
   };
 }
 
@@ -114,7 +138,7 @@ export async function getSource(
   return {
     id: source.id,
     title: source.title,
-    type: source.type as SourceType,
+    type: source.type,
     source: source.source,
     fileUrl: source.fileUrl,
   };

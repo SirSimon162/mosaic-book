@@ -10,6 +10,6 @@ export async function getUserByUserId(userId: string): Promise<PublicUser> {
   }
   return {
     ...user,
-    role: user.role as UserRole,
+    role: user.role,
   };
 }

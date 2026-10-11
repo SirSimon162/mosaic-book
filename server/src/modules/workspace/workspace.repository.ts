@@ -1,5 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
-import { CreateWorkspaceInput, SourceType } from "./workspace.types.js";
+import { CreateWorkspaceInput, CreateSourceRow } from "./workspace.types.js";
 
 export async function createNewWorkspace(
   userId: string,
@@ -102,19 +102,16 @@ export async function getWorkspaceById(workspaceId: string, userId: string) {
 
 export async function createNewSource(
   workspaceId: string,
-  type: SourceType,
-  title: string,
-  content?: string,
-  fileUrl?: string,
+  row: CreateSourceRow,
 ) {
   try {
     const source = await prisma.source.create({
       data: {
         workspaceId,
-        type,
-        title,
-        source: content ?? null,
-        fileUrl: fileUrl ?? null,
+        type: row.type,
+        title: row.title,
+        source: row.source,
+        fileUrl: row.fileUrl,
       },
       include: {
         workspace: {

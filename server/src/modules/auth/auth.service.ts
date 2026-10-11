@@ -22,7 +22,7 @@ export async function registerUser(input: RegisterInput): Promise<PublicUser> {
   return {
     id: user.id,
     email: user.email,
-    role: user.role as UserRole,
+    role: user.role,
     firstName: user?.firstName ?? null,
     lastName: user?.lastName ?? null,
   };
@@ -40,6 +40,6 @@ export async function loginUser(input: LoginInput): Promise<PublicUser> {
   return {
     id: user.id,
     email: user.email,
-    role: user.role as UserRole,
+    role: user.role,
   };
 }

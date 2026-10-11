@@ -1,5 +1,8 @@
 import * as z from "zod";
 import { publicUserSchema } from "../auth/auth.types.js";
+import { SourceType, SourceStatus } from "../../generated/prisma/enums.js";
+
+export { SourceType, SourceStatus };
 
 export const WorkspaceNameSchema = z.string().trim().min(3).max(20);
 
@@ -31,24 +34,6 @@ export const publicWorkspacesListSchema = publicWorkspaceSchema.omit({
 });
 
 export type PublicWorkspacesList = z.infer<typeof publicWorkspacesListSchema>;
-
-export enum SourceType {
-  TEXT = "TEXT",
-  MARKDOWN = "MARKDOWN",
-  PDF = "PDF",
-  DOC = "DOC",
-  CSV = "CSV",
-  JSON = "JSON",
-  YOUTUBE = "YOUTUBE",
-  WEBSITE = "WEBSITE",
-}
-
-export enum SourceStatus {
-  PENDING = "PENDING",
-  PROCESSING = "PROCESSING",
-  COMPLETED = "COMPLETED",
-  FAILED = "FAILED",
-}
 
 export const publicWorkspaceDetailsSchema = publicWorkspaceSchema.extend({
   chats: z.array(
@@ -96,11 +81,33 @@ export const uploadSourceSchema = z
 
 export type UploadSourceInput = z.infer<typeof uploadSourceSchema>;
 
-export type CreateSourcePayload = {
+export const createWebsiteSourceSchema = z
+  .object({
+    type: z.enum([SourceType.WEBSITE]),
+    title: z.string().trim().min(1).max(100),
+    url: z.url(),
+  })
+  .strict();
+
+export type CreateWebsiteSourceInput = z.infer<typeof createWebsiteSourceSchema>;
+
+export const createJsonSourceSchema = z.discriminatedUnion("type", [
+  createSourceSchema,
+  createWebsiteSourceSchema,
+]);
+
+export type CreateJsonSourceInput = z.infer<typeof createJsonSourceSchema>;
+
+export type CreateSourcePayload =
+  | CreateSourceInput
+  | (UploadSourceInput & { fileUrl: string })
+  | CreateWebsiteSourceInput;
+
+export type CreateSourceRow = {
   type: SourceType;
   title: string;
-  content?: string;
-  fileUrl?: string;
+  source: string | null;
+  fileUrl: string | null;
 };
 
 export const publicSourceSchema = z

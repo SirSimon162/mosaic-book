@@ -1,9 +1,7 @@
 import * as z from "zod";
+import { UserRole } from "../../generated/prisma/enums.js";
 
-export enum UserRole {
-  ADMIN = "ADMIN",
-  USER = "USER",
-}
+export { UserRole };
 
 export const loginSchema = z
   .object({
