@@ -4,7 +4,7 @@ import express, {
   type Response,
   type Router,
 } from "express";
-import { createJsonSourceSchema, createWorkspaceSchema, uploadSourceSchema } from "./workspace.types.js";
+import { createJsonSourceSchema, createWorkspaceSchema, uploadFileMatchesType, uploadSourceSchema } from "./workspace.types.js";
 import { sendFail, sendSuccess } from "../../lib/api-response.js";
 import { Status } from "../../lib/http-code.js";
 import {
@@ -16,7 +16,7 @@ import {
   getWorkspaces,
 } from "./workspace.service.js";
 import AppError from "../../lib/http-error.js";
-import { deleteAsset, upload } from "../../lib/cloudinary-config.js";
+import { deleteAsset, saveUpload, upload } from "../../lib/cloudinary-config.js";
 import { requireUserId } from "../../types/authed-request.js";
 
 const workspaceRoutes: Router = express.Router();
@@ -70,18 +70,26 @@ workspaceRoutes.post(
       return sendFail(res, Status.BAD_REQUEST, "Invalid Input");
     }
 
-    const rawPath = req.file?.path;
-    const fileUrl = Array.isArray(rawPath) ? rawPath[0] : rawPath;
-    if (!fileUrl) {
+    const file = req.file;
+    if (!file) {
       return sendFail(res, Status.BAD_REQUEST, "File is required");
     }
+    if (!uploadFileMatchesType(input.data.type, file.originalname)) {
+      return sendFail(res, Status.BAD_REQUEST, "Invalid file type");
+    }
 
+    const fileUrl = await saveUpload(file);
     const { workspaceId } = req.params as { workspaceId: string };
-    const source = await createSource(workspaceId, {
-      ...input.data,
-      fileUrl,
-    });
-    return sendSuccess(res, Status.CREATED, source);
+    try {
+      const source = await createSource(workspaceId, {
+        ...input.data,
+        fileUrl,
+      });
+      return sendSuccess(res, Status.CREATED, source);
+    } catch (error) {
+      await deleteAsset(fileUrl).catch(() => undefined);
+      throw error;
+    }
   },
 );
 

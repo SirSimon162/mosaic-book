@@ -81,6 +81,23 @@ export const uploadSourceSchema = z
 
 export type UploadSourceInput = z.infer<typeof uploadSourceSchema>;
 
+const uploadExtensionsByType = {
+  [SourceType.PDF]: ["pdf"],
+  [SourceType.DOC]: ["doc", "docx"],
+  [SourceType.CSV]: ["csv"],
+} as const;
+
+export const allowedUploadExtensions: readonly string[] = Object.values(uploadExtensionsByType).flat();
+
+export function uploadFileMatchesType(
+  type: UploadSourceInput["type"],
+  filename: string,
+): boolean {
+  const extension = filename.split(".").pop()?.toLowerCase();
+  if (!extension) return false;
+  return (uploadExtensionsByType[type] as readonly string[]).includes(extension);
+}
+
 export const createWebsiteSourceSchema = z
   .object({
     type: z.enum([SourceType.WEBSITE]),
@@ -127,6 +144,7 @@ export const publicSourceDetailsSchema = z.object({
   title: z.string(),
   source: z.string().nullable(),
   fileUrl: z.string().nullable(),
+  status: z.enum(SourceStatus),
   type: z.enum(SourceType),
 });
 

@@ -139,6 +139,7 @@ export async function getSourceById(workspaceId: string, sourceId: string) {
         id: true,
         title: true,
         type: true,
+        status: true,
         source: true,
         fileUrl: true,
       },

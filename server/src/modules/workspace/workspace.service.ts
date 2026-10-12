@@ -140,6 +140,7 @@ export async function getSource(
     title: source.title,
     type: source.type,
     source: source.source,
+    status: source.status,
     fileUrl: source.fileUrl,
   };
 }
