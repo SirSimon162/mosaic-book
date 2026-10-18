@@ -26,41 +26,59 @@ model User {
   updatedAt       DateTime    @updatedAt
   ownedWorkspaces Workspace[] @relation("workspaceOwner")
   workspaces      Workspace[] @relation("workspaceMembers")
-  chats           Chat[]
 }
 
 model Workspace {
-  id        String   @id @default(uuid())
-  ownerId   String
-  owner     User     @relation(name: "workspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  name      String   @default("My Workspace")
-  chats     Chat[]
-  sources   Source[]
-  users     User[]   @relation("workspaceMembers")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String             @id @default(uuid())
+  ownerId      String
+  owner        User               @relation(name: "workspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  name         String             @default("My Workspace")
+  defaultModel String             @default("gpt-4o-mini")
+  chats        Chat[]
+  sources      Source[]
+  users        User[]             @relation("workspaceMembers")
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  artifacts    LearningArtifact[]
+
+  @@index([ownerId])
 }
 
 model Chat {
-  id          String    @id @default(uuid())
-  workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
-  title       String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                  String    @id @default(uuid())
+  workspaceId         String
+  workspace           Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title               String
+  summary             String?
+  summaryMessageCount Int       @default(0)
+  summarizedAt        DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  messages            Message[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, updatedAt])
+}
+
+model Message {
+  id        String      @id @default(uuid())
+  chatId    String
+  role      MessageRole
+  content   String
+  citations Json?
+  createdAt DateTime    @default(now())
+  chat      Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+  @@index([chatId, createdAt])
 }
 
 enum SourceType {
+  PDF
+  WEBSITE
+  YOUTUBE
   TEXT
   MARKDOWN
-  PDF
-  DOC
-  CSV
-  JSON
-  YOUTUBE
-  WEBSITE
 }
 
 enum SourceStatus {
@@ -71,14 +89,74 @@ enum SourceStatus {
 }
 
 model Source {
-  id          String       @id @default(uuid())
+  id          String        @id @default(uuid())
   workspaceId String
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   source      String?
+  url         String?
   fileUrl     String?
+  metadata    Json?
   type        SourceType
-  title       String       @default("My Mosaic")
-  status      SourceStatus @default(PENDING)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  title       String        @default("My Mosaic")
+  status      SourceStatus  @default(PENDING)
+  chunks      SourceChunk[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+  @@index([workspaceId, type])
+}
+
+model SourceChunk {
+  id         String   @id @default(uuid())
+  sourceId   String
+  index      Int
+  content    String
+  tokenCount Int?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  source     Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([sourceId, index])
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum ArtifactType {
+  SUMMARY
+  TAKEAWAYS
+  FLASHCARDS
+  QUIZ
+  MINDMAP
+  REPORT
+}
+
+enum ArtifactStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model LearningArtifact {
+  id          String         @id @default(uuid())
+  workspaceId String
+  type        ArtifactType
+  status      ArtifactStatus @default(PENDING)
+  title       String
+  content     Json?
+  sourceIds   String[]
+  metadata    Json?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, type])
+  @@index([workspaceId, status])
 }

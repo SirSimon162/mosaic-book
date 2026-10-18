@@ -4,15 +4,18 @@ import { SourceType, SourceStatus } from "../../generated/prisma/enums.js";
 
 export { SourceType, SourceStatus };
 
+export const CHAT_MODELS = ["gpt-4o-mini", "gpt-4o"] as const;
+
 export const WorkspaceNameSchema = z.string().trim().min(3).max(20);
 
 export const createWorkspaceSchema = z
-  .object({ name: WorkspaceNameSchema })
+  .object({ name: WorkspaceNameSchema, defaultModel: z.enum(CHAT_MODELS) })
   .strict();
 
 export const updateWorkspaceSchema = z
   .object({
     name: WorkspaceNameSchema,
+    defaultModel: z.enum(CHAT_MODELS),
   })
   .strict();
 
@@ -71,9 +74,7 @@ export type CreateSourceInput = z.infer<typeof createSourceSchema>;
 export const uploadSourceSchema = z
   .object({
     type: z.enum([
-      SourceType.PDF,
-      SourceType.DOC,
-      SourceType.CSV,
+      SourceType.PDF
     ]),
     title: z.string().trim().min(1).max(100),
   })
@@ -82,10 +83,9 @@ export const uploadSourceSchema = z
 export type UploadSourceInput = z.infer<typeof uploadSourceSchema>;
 
 const uploadExtensionsByType = {
-  [SourceType.PDF]: ["pdf"],
-  [SourceType.DOC]: ["doc", "docx"],
-  [SourceType.CSV]: ["csv"],
+  [SourceType.PDF]: ["pdf"]
 } as const;
+
 
 export const allowedUploadExtensions: readonly string[] = Object.values(uploadExtensionsByType).flat();
 
