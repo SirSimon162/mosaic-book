@@ -1,5 +1,9 @@
 import { prisma } from "../../lib/prisma.js";
-import { CreateWorkspace, WorkspaceIdParam, UpdateWorkspace } from "./workspace.types.js";
+import {
+  CreateWorkspace,
+  WorkspaceIdParam,
+  UpdateWorkspace,
+} from "./workspace.types.js";
 
 export async function createWorkspace(userId: string, input: CreateWorkspace) {
   const workspace = await prisma.workspace.create({
@@ -9,55 +13,149 @@ export async function createWorkspace(userId: string, input: CreateWorkspace) {
       defaultModel: input.defaultModel,
       users: {
         connect: {
+          id: userId,
+        },
+      },
+    },
+    include: {
+      users: {
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+        },
+      },
+    },
+  });
+  return workspace;
+}
+
+export async function updateWorkspace(
+  ownerId: string,
+  workspaceId: string,
+  input: UpdateWorkspace,
+) {
+  const workspace = await prisma.workspace.update({
+    where: {
+      id: workspaceId,
+      ownerId: ownerId,
+    },
+    data: {
+      ...(input.name !== undefined && { name: input.name }),
+      ...(input.defaultModel !== undefined && {
+        defaultModel: input.defaultModel,
+      }),
+    },
+    include: {
+      users: {
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+        },
+      },
+    },
+  });
+  return workspace;
+}
+
+export async function deleteWorkspace(
+  ownerId: string,
+  input: WorkspaceIdParam,
+) {
+  await prisma.workspace.delete({
+    where: {
+      id: input.id,
+      ownerId: ownerId,
+    },
+  });
+}
+
+export async function getAllWorkspaces(
+  userId: string,
+  limit: number,
+  offset: number,
+) {
+  return prisma.workspace.findMany({
+    where: {
+      users: {
+        some: {
+          id: userId,
+        },
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      ownerId: true,
+    },
+    orderBy: {
+      updatedAt: "desc",
+    },
+    take: limit,
+    skip: offset,
+  });
+}
+
+export async function getWorkspaceById(workspaceId: string, userId: string){
+  return await prisma.workspace.findFirst({
+    where: {
+      id: workspaceId,
+      users: {
+        some: {
           id: userId
         }
       }
     },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      defaultModel: true,
+      ownerId: true,
       users: {
         select: {
           id: true,
-          email: true,
           firstName: true,
           lastName: true,
+          email: true,
           role: true,
         }
-      }
-    }
-  })
-  return workspace
-}
-
-export async function updateWorkspace(ownerId: string, workspaceId: string, input: UpdateWorkspace) {
-  const workspace = await prisma.workspace.update({
-    where: {
-      id: workspaceId,
-      ownerId: ownerId
-    },
-    data: {
-      ...(input.name !== undefined && { name: input.name }),
-      ...(input.defaultModel !== undefined && { defaultModel: input.defaultModel }),
-    },
-    include: {
-      users: {
+      },
+      sources: {
         select: {
           id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          role: true,
+          title: true,
+          type: true,
+          status: true
+        },
+        orderBy: {
+          updatedAt: "desc",
         }
-      }
-    }
-  })
-  return workspace
-}
-
-export async function deleteWorkspace(ownerId: string, input: WorkspaceIdParam) {
-  await prisma.workspace.delete({
-    where: {
-      id: input.id,
-      ownerId: ownerId
-    }
-  })
+      },
+      chats: {
+        select: {
+          id: true,
+          title: true,
+        },
+        orderBy: {
+          updatedAt: "desc",
+        }
+      },
+      artifacts: {
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+        },
+        orderBy: {
+          updatedAt: "desc",
+        }
+      },
+    },
+  });
 }
