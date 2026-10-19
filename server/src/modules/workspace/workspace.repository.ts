@@ -5,6 +5,36 @@ import {
   UpdateWorkspace,
 } from "./workspace.types.js";
 
+export async function isWorkspaceUser(workspaceId: string, userId: string){
+  const row =  await prisma.workspace.findFirst({
+    where: {
+      id: workspaceId,
+      users: {
+        some: {
+          id: userId,
+        }
+      }
+    },
+    select: {
+      id: true,
+    }
+  })
+  return row !== null;
+}
+
+export async function isWorkspaceOwner(workspaceId: string, userId: string){
+  const row = await prisma.workspace.findFirst({
+    where: {
+      id: workspaceId,
+      ownerId: userId,
+    },
+    select:{
+      id: true,
+    }
+  })
+  return row !== null;
+}
+
 export async function createWorkspace(userId: string, input: CreateWorkspace) {
   const workspace = await prisma.workspace.create({
     data: {
@@ -69,7 +99,7 @@ export async function deleteWorkspace(
 ) {
   await prisma.workspace.delete({
     where: {
-      id: input.id,
+      id: input.workspaceId,
       ownerId: ownerId,
     },
   });

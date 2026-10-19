@@ -67,8 +67,8 @@ export async function getAllUserWorkspaces(
 }
 
 export async function getWorkspace(workspaceId: string, userId: string): Promise<PublicWorkspace> {
-  const workspace =  await getWorkspaceById(workspaceId, userId)
-  if(!workspace){
+  const workspace = await getWorkspaceById(workspaceId, userId)
+  if (!workspace) {
     throw new AppError("Workspace not found", Status.NOT_FOUND);
   }
   return publicWorkspaceSchema.parse(workspace)

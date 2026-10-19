@@ -21,7 +21,7 @@ export const updateWorkspaceSchema = z
   );
 
 export const workspaceIdParamSchema = z.object({
-  id: z.uuid(),
+  workspaceId: z.uuid(),
 });
 
 export const listWorkspacesQuerySchema = z.object({

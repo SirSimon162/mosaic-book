@@ -1,17 +1,8 @@
 import express, {
-  type NextFunction,
-  type Request,
-  type Response,
   type Router,
 } from "express";
 import { sendFail, sendSuccess } from "../../lib/api-response.js";
 import { Status } from "../../lib/http-code.js";
-import AppError from "../../lib/http-error.js";
-import {
-  deleteAsset,
-  saveUpload,
-  upload,
-} from "../../lib/cloudinary-config.js";
 import { requireUserId } from "../../types/authed-request.js";
 import {
   createWorkspaceSchema,
@@ -26,20 +17,10 @@ import {
   getWorkspace,
   updateWorkspaceById,
 } from "./workspace.service.js";
+import sourceRoutes from "../source/source.route.js";
+import { requireWorkspaceUserAccess } from "../../middleware/index.js";
 
 const workspaceRoutes: Router = express.Router();
-
-async function requireWorkspaceAccess(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-) {
-  const { workspaceId } = req.params;
-  if (typeof workspaceId !== "string") {
-    throw new AppError("Workspace ID is required", Status.BAD_REQUEST);
-  }
-  next();
-}
 
 workspaceRoutes.post("/create", async (req, res) => {
   const input = createWorkspaceSchema.safeParse(req.body);
@@ -50,7 +31,7 @@ workspaceRoutes.post("/create", async (req, res) => {
   return sendSuccess(res, Status.CREATED, workspace);
 });
 
-workspaceRoutes.put("/:id", async (req, res) => {
+workspaceRoutes.put("/:workspaceId", async (req, res) => {
   const params = workspaceIdParamSchema.safeParse(req.params);
   if (!params.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
@@ -61,48 +42,19 @@ workspaceRoutes.put("/:id", async (req, res) => {
   }
   const workspace = await updateWorkspaceById(
     requireUserId(req),
-    params.data.id,
+    params.data.workspaceId,
     input.data,
   );
   return sendSuccess(res, Status.OK, workspace);
 });
 
-workspaceRoutes.delete("/:id", async (req, res) => {
+workspaceRoutes.delete("/:workspaceId", async (req, res) => {
   const input = workspaceIdParamSchema.safeParse(req.params);
   if (!input.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
   }
   await deleteWorkspaceById(requireUserId(req), input.data);
   return sendSuccess(res, Status.OK, null);
-});
-
-workspaceRoutes.post("/:workspaceId/source", async (req, res) => { });
-
-workspaceRoutes.post(
-  "/:workspaceId/source/upload",
-  requireWorkspaceAccess,
-  upload.single("file"),
-  async (req, res) => { },
-);
-
-workspaceRoutes.get("/:workspaceId/source/:sourceId", async (req, res) => {
-  const { workspaceId, sourceId } = req.params;
-  if (!workspaceId || !sourceId) {
-    throw new AppError(
-      "Workspace ID and Source ID are required",
-      Status.BAD_REQUEST,
-    );
-  }
-});
-
-workspaceRoutes.delete("/:workspaceId/source/:sourceId", async (req, res) => {
-  const { workspaceId, sourceId } = req.params;
-  if (!workspaceId || !sourceId) {
-    throw new AppError(
-      "Workspace ID and Source ID are required",
-      Status.BAD_REQUEST,
-    );
-  }
 });
 
 workspaceRoutes.get("/", async (req, res) => {
@@ -118,13 +70,16 @@ workspaceRoutes.get("/", async (req, res) => {
   return sendSuccess(res, Status.OK, workspaces);
 });
 
-workspaceRoutes.get("/:id", async (req, res) => {
+workspaceRoutes.use("/:workspaceId/source", requireWorkspaceUserAccess, sourceRoutes);
+
+workspaceRoutes.get("/:workspaceId", async (req, res) => {
   const params = workspaceIdParamSchema.safeParse(req.params);
   if (!params.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
   }
-  const workspace = await getWorkspace(params.data.id, requireUserId(req))
+  const workspace = await getWorkspace(params.data.workspaceId, requireUserId(req))
   return sendSuccess(res, Status.OK, workspace);
 });
+
 
 export default workspaceRoutes;
