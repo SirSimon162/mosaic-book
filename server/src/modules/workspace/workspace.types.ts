@@ -1,5 +1,11 @@
 import * as z from "zod";
-import { UserRole, SourceType, ArtifactType, ArtifactStatus, SourceStatus } from "../../generated/prisma/enums.js"
+import {
+  UserRole,
+  SourceType,
+  ArtifactType,
+  ArtifactStatus,
+  SourceStatus,
+} from "../../generated/prisma/enums.js";
 
 export const CHAT_MODELS = ["gpt-4o-mini", "gpt-4o"] as const;
 
@@ -34,7 +40,7 @@ export const publicWorkspacesSchema = z.object({
     z.object({
       id: z.uuid(),
       name: z.string(),
-      ownerId: z.uuid()
+      ownerId: z.uuid(),
     }),
   ),
   limit: z.number(),
@@ -47,29 +53,37 @@ export const publicWorkspaceSchema = z.object({
   name: z.string(),
   defaultModel: z.enum(CHAT_MODELS),
   ownerId: z.uuid(),
-  users: z.array(z.object({
-    id: z.string(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    email: z.email(),
-    role: z.enum(UserRole)
-  })),
-  sources: z.array(z.object({
-    id: z.uuid(),
-    title: z.string(),
-    type: z.enum(SourceType),
-    status: z.enum(SourceStatus)
-  })),
-  chats: z.array(z.object({
-    id: z.uuid(),
-    title: z.string(),
-  })),
-  artifacts: z.array(z.object({
-    id: z.uuid(),
-    title: z.string(),
-    type: z.enum(ArtifactType),
-    status: z.enum(ArtifactStatus)
-  }))
+  users: z.array(
+    z.object({
+      id: z.string(),
+      firstName: z.string().nullable(),
+      lastName: z.string().nullable(),
+      email: z.email(),
+      role: z.enum(UserRole),
+    }),
+  ),
+  sources: z.array(
+    z.object({
+      id: z.uuid(),
+      title: z.string(),
+      type: z.enum(SourceType),
+      status: z.enum(SourceStatus),
+    }),
+  ),
+  chats: z.array(
+    z.object({
+      id: z.uuid(),
+      title: z.string(),
+    }),
+  ),
+  artifacts: z.array(
+    z.object({
+      id: z.uuid(),
+      title: z.string(),
+      type: z.enum(ArtifactType),
+      status: z.enum(ArtifactStatus),
+    }),
+  ),
 });
 
 export type CreateWorkspace = z.infer<typeof createWorkspaceSchema>;

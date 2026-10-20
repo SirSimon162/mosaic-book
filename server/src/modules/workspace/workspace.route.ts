@@ -1,6 +1,4 @@
-import express, {
-  type Router,
-} from "express";
+import express, { type Router } from "express";
 import { sendFail, sendSuccess } from "../../lib/api-response.js";
 import { Status } from "../../lib/http-code.js";
 import { requireUserId } from "../../types/authed-request.js";
@@ -70,16 +68,22 @@ workspaceRoutes.get("/", async (req, res) => {
   return sendSuccess(res, Status.OK, workspaces);
 });
 
-workspaceRoutes.use("/:workspaceId/source", requireWorkspaceUserAccess, sourceRoutes);
+workspaceRoutes.use(
+  "/:workspaceId/source",
+  requireWorkspaceUserAccess,
+  sourceRoutes,
+);
 
 workspaceRoutes.get("/:workspaceId", async (req, res) => {
   const params = workspaceIdParamSchema.safeParse(req.params);
   if (!params.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
   }
-  const workspace = await getWorkspace(params.data.workspaceId, requireUserId(req))
+  const workspace = await getWorkspace(
+    params.data.workspaceId,
+    requireUserId(req),
+  );
   return sendSuccess(res, Status.OK, workspace);
 });
-
 
 export default workspaceRoutes;

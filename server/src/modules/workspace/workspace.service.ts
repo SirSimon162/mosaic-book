@@ -66,10 +66,13 @@ export async function getAllUserWorkspaces(
   return publicWorkspacesSchema.parse({ workspaces, limit, offset, hasMore });
 }
 
-export async function getWorkspace(workspaceId: string, userId: string): Promise<PublicWorkspace> {
-  const workspace = await getWorkspaceById(workspaceId, userId)
+export async function getWorkspace(
+  workspaceId: string,
+  userId: string,
+): Promise<PublicWorkspace> {
+  const workspace = await getWorkspaceById(workspaceId, userId);
   if (!workspace) {
     throw new AppError("Workspace not found", Status.NOT_FOUND);
   }
-  return publicWorkspaceSchema.parse(workspace)
+  return publicWorkspaceSchema.parse(workspace);
 }

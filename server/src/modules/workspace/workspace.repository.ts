@@ -5,33 +5,33 @@ import {
   UpdateWorkspace,
 } from "./workspace.types.js";
 
-export async function isWorkspaceUser(workspaceId: string, userId: string){
-  const row =  await prisma.workspace.findFirst({
+export async function isWorkspaceUser(workspaceId: string, userId: string) {
+  const row = await prisma.workspace.findFirst({
     where: {
       id: workspaceId,
       users: {
         some: {
           id: userId,
-        }
-      }
+        },
+      },
     },
     select: {
       id: true,
-    }
-  })
+    },
+  });
   return row !== null;
 }
 
-export async function isWorkspaceOwner(workspaceId: string, userId: string){
+export async function isWorkspaceOwner(workspaceId: string, userId: string) {
   const row = await prisma.workspace.findFirst({
     where: {
       id: workspaceId,
       ownerId: userId,
     },
-    select:{
+    select: {
       id: true,
-    }
-  })
+    },
+  });
   return row !== null;
 }
 
@@ -131,15 +131,15 @@ export async function getAllWorkspaces(
   });
 }
 
-export async function getWorkspaceById(workspaceId: string, userId: string){
+export async function getWorkspaceById(workspaceId: string, userId: string) {
   return await prisma.workspace.findFirst({
     where: {
       id: workspaceId,
       users: {
         some: {
-          id: userId
-        }
-      }
+          id: userId,
+        },
+      },
     },
     select: {
       id: true,
@@ -153,18 +153,18 @@ export async function getWorkspaceById(workspaceId: string, userId: string){
           lastName: true,
           email: true,
           role: true,
-        }
+        },
       },
       sources: {
         select: {
           id: true,
           title: true,
           type: true,
-          status: true
+          status: true,
         },
         orderBy: {
           updatedAt: "desc",
-        }
+        },
       },
       chats: {
         select: {
@@ -173,7 +173,7 @@ export async function getWorkspaceById(workspaceId: string, userId: string){
         },
         orderBy: {
           updatedAt: "desc",
-        }
+        },
       },
       artifacts: {
         select: {
@@ -184,7 +184,7 @@ export async function getWorkspaceById(workspaceId: string, userId: string){
         },
         orderBy: {
           updatedAt: "desc",
-        }
+        },
       },
     },
   });
