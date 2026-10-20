@@ -22,6 +22,13 @@ export const publicSourceSchema = z.object({
   status: sourceStatusSchema,
 });
 
+export const publicSourceDetailSchema = publicSourceSchema.extend({
+  source: z.string().nullable(),
+  url: z.string().nullable(),
+  fileUrl: z.string().nullable(),
+  metadata: z.unknown().nullable(),
+});
+
 export const publicListSourcesSchema = z.array(publicSourceSchema);
 
 export const createTextSourceSchema = z.object({
@@ -89,6 +96,7 @@ export type SourceIdParam = z.infer<typeof sourceIdParamSchema>;
 export type CreateSource = z.infer<typeof createSourceSchema>;
 export type ListSourcesQuery = z.infer<typeof listSourcesQuerySchema>;
 export type PublicSource = z.infer<typeof publicSourceSchema>;
+export type PublicSourceDetail = z.infer<typeof publicSourceDetailSchema>;
 export type PublicListSources = z.infer<typeof publicListSourcesSchema>;
 export type ImportWebsite = z.infer<typeof importWebsiteSchema>;
 export type ImportYouTube = z.infer<typeof importYouTubeSchema>;

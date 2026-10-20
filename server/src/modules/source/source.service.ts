@@ -6,12 +6,15 @@ import {
   PublicListSources,
   publicListSourcesSchema,
   PublicSource,
+  PublicSourceDetail,
+  publicSourceDetailSchema,
   publicSourceSchema,
 } from "./source.types.js";
 import AppError from "../../lib/http-error.js";
 import { Status } from "../../lib/http-code.js";
 import {
   createSourceInWorkspace,
+  getSource,
   getSourcesByWorkspaceId,
 } from "./source.repository.js";
 
@@ -37,4 +40,13 @@ export async function createSource(
 ): Promise<PublicSource> {
   const source = await createSourceInWorkspace(workspaceId, data);
   return publicSourceSchema.parse(source);
+}
+
+
+export async function getSourceById(workspaceId: string, sourceId: string): Promise<PublicSourceDetail> {
+  const source = await getSource(workspaceId, sourceId);
+  if(!source){
+    throw new AppError("Source not found", Status.NOT_FOUND);
+  }
+  return publicSourceDetailSchema.parse(source)
 }

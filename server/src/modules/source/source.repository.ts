@@ -45,3 +45,23 @@ export async function createSourceInWorkspace(
   });
   return source;
 }
+
+export async function getSource(workspaceId: string, sourceId: string) {
+  const source = await prisma.source.findFirst({
+    where: {
+      workspaceId,
+      id: sourceId,
+    },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      status: true,
+      source: true,
+      url: true,
+      fileUrl: true,
+      metadata: true,
+    },
+  });
+  return source;
+}
