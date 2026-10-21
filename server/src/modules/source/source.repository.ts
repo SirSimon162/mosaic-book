@@ -1,5 +1,11 @@
+import { SourceStatus, SourceType } from "../../generated/prisma/enums.js";
 import { prisma } from "../../lib/prisma.js";
-import { CreateSource, ListSourcesQuery } from "./source.types.js";
+import {
+  CreatePdfSource,
+  CreateSource,
+  CreateWebsiteSource,
+  ListSourcesQuery,
+} from "./source.types.js";
 
 export async function getSourcesByWorkspaceId(
   workspaceId: string,
@@ -35,6 +41,54 @@ export async function createSourceInWorkspace(
       type: data.type,
       title: data.title,
       source: data.content,
+    },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      status: true,
+    },
+  });
+  return source;
+}
+
+export async function createWebsiteSourceInWorkspace(
+  workspaceId: string,
+  data: CreateWebsiteSource,
+) {
+  const source = await prisma.source.create({
+    data: {
+      workspaceId,
+      type: SourceType.WEBSITE,
+      title: data.title,
+      source: data.content,
+      url: data.url,
+      status: SourceStatus.PENDING,
+      metadata: {
+        importedFrom: data.metadata?.importedFrom ?? data.url,
+      },
+    },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      status: true,
+    },
+  });
+  return source;
+}
+
+export async function createPdfSourceInWorkspace(
+  workspaceId: string,
+  data: CreatePdfSource,
+) {
+  const source = await prisma.source.create({
+    data: {
+      workspaceId,
+      type: SourceType.PDF,
+      title: data.title,
+      fileUrl: data.fileUrl,
+      status: SourceStatus.PENDING,
     },
     select: {
       id: true,

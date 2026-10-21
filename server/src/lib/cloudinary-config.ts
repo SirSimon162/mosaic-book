@@ -3,7 +3,7 @@ import multer from "multer";
 import environment from "../config/env.js";
 import AppError from "./http-error.js";
 import { Status } from "./http-code.js";
-import { allowedUploadExtensions } from "../modules/workspace/workspace.types.js";
+import { allowedUploadExtensions } from "../modules/source/source.types.js";
 
 cloudinary.config({
   cloud_name: environment.CLOUDINARY_CLOUD_NAME,
@@ -13,7 +13,7 @@ cloudinary.config({
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter(_req, file, callback) {
     const extension = file.originalname.split(".").pop()?.toLowerCase();
     if (!extension || !allowedUploadExtensions.includes(extension)) {
@@ -32,8 +32,8 @@ function saveUpload(file: Express.Multer.File): Promise<string> {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
-        folder: "my_app_uploads",
-        resource_type: "auto",
+        folder: "mosaic-sources",
+        resource_type: "raw",
         allowed_formats: [...allowedUploadExtensions],
         public_id: `file-${Date.now()}`,
       },

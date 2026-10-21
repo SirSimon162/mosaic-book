@@ -4,6 +4,8 @@ import { SourceType, SourceStatus } from "../../generated/prisma/enums.js";
 export const sourceTypeSchema = z.enum(SourceType);
 export const sourceStatusSchema = z.enum(SourceStatus);
 
+export const allowedUploadExtensions = ["pdf"];
+
 export const sourceIdParamSchema = z.object({
   workspaceId: z.uuid(),
   sourceId: z.uuid(),
@@ -51,6 +53,32 @@ export const createMarkdownSourceSchema = z.object({
   content: z.string().trim().min(1, "Content is required"),
 });
 
+export const createWebsiteSourceSchema = z.object({
+  type: z.literal(SourceType.WEBSITE),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Title is required")
+    .max(200, "Title must be less than 200 characters"),
+  content: z.string().trim().min(1, "Content is required"),
+  url: z.url().trim().min(1, "URL is required"),
+  metadata: z
+    .object({
+      importedFrom: z.url().nullable().optional(),
+    })
+    .optional(),
+});
+
+export const createPdfSourceSchema = z.object({
+  type: z.literal(SourceType.PDF),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Title is required")
+    .max(200, "Title must be less than 200 characters"),
+  fileUrl: z.string().trim().min(1, "File URL is required"),
+});
+
 export const createSourceSchema = z.discriminatedUnion("type", [
   createTextSourceSchema,
   createMarkdownSourceSchema,
@@ -58,6 +86,14 @@ export const createSourceSchema = z.discriminatedUnion("type", [
 
 export const importWebsiteSchema = z.object({
   url: z.url().trim().min(1, "Website URL is required"),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Title is required")
+    .max(200, "Title must be less than 200 characters"),
+});
+
+export const importPdfSchema = z.object({
   title: z
     .string()
     .trim()
@@ -98,7 +134,10 @@ export type ListSourcesQuery = z.infer<typeof listSourcesQuerySchema>;
 export type PublicSource = z.infer<typeof publicSourceSchema>;
 export type PublicSourceDetail = z.infer<typeof publicSourceDetailSchema>;
 export type PublicListSources = z.infer<typeof publicListSourcesSchema>;
+export type CreateWebsiteSource = z.infer<typeof createWebsiteSourceSchema>;
+export type CreatePdfSource = z.infer<typeof createPdfSourceSchema>;
 export type ImportWebsite = z.infer<typeof importWebsiteSchema>;
+export type ImportPdf = z.infer<typeof importPdfSchema>;
 export type ImportYouTube = z.infer<typeof importYouTubeSchema>;
 export type BulkDeleteSources = z.infer<typeof bulkDeleteSourcesSchema>;
 export type ReprocessSources = z.infer<typeof reprocessSourcesSchema>;
