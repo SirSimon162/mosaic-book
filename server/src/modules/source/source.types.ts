@@ -111,7 +111,10 @@ export const importYouTubeSchema = z.object({
 });
 
 export const bulkDeleteSourcesSchema = z.object({
-  sourceIds: z.array(z.uuid()).min(1, "At least one source ID is required"),
+  sourceIds: z
+    .array(z.uuid())
+    .min(1, "At least one source ID is required")
+    .max(10, "At most 10 source IDs are allowed"),
 });
 
 export const reprocessSourcesSchema = z.object({

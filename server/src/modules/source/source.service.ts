@@ -1,5 +1,6 @@
 import { Request } from "express";
 import {
+  BulkDeleteSources,
   CreateSource,
   CreateWebsiteSource,
   ImportPdf,
@@ -19,12 +20,16 @@ import {
   createPdfSourceInWorkspace,
   createSourceInWorkspace,
   createWebsiteSourceInWorkspace,
+  deleteManySourcesInWorkspace,
+  deleteSourceInWorkspace,
+  findSourcesForDelete,
   getSource,
   getSourcesByWorkspaceId,
 } from "./source.repository.js";
 import { scrapeWebsite } from "../../lib/firecrawl.js";
 import { SourceType } from "../../generated/prisma/enums.js";
 import { deleteAsset, saveUpload } from "../../lib/cloudinary-config.js";
+import { Prisma } from "../../generated/prisma/client.js";
 
 async function createAndProcessSource(
   workspaceId: string,
@@ -110,4 +115,35 @@ export async function importPdfSource(
     await deleteAsset(fileUrl).catch(() => undefined);
     throw e;
   }
+}
+
+export async function deleteSource(workspaceId: string, sourceId: string) {
+  try {
+    const source = await deleteSourceInWorkspace(workspaceId, sourceId);
+    if (!!source.fileUrl) {
+      await deleteAsset(source.fileUrl).catch(() => undefined);
+    }
+  } catch (e) {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2025"
+    ) {
+      throw new AppError("Source not found", Status.NOT_FOUND);
+    }
+    throw e;
+  }
+}
+
+export async function deleteManySources(
+  workspaceId: string,
+  data: BulkDeleteSources,
+) {
+  const sources = await findSourcesForDelete(workspaceId, data.sourceIds);
+  const idsToDelete = sources.map((source) => source.id);
+  await deleteManySourcesInWorkspace(workspaceId, idsToDelete);
+  await Promise.all(
+    sources
+      .filter((s) => !!s.fileUrl)
+      .map((s) => deleteAsset(s.fileUrl!).catch(() => undefined)),
+  );
 }

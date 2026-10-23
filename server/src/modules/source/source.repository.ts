@@ -119,3 +119,38 @@ export async function getSource(workspaceId: string, sourceId: string) {
   });
   return source;
 }
+
+export async function deleteSourceInWorkspace(
+  workspaceId: string,
+  sourceId: string,
+) {
+  const source = await prisma.source.delete({
+    where: {
+      workspaceId,
+      id: sourceId,
+    },
+    select: {
+      fileUrl: true,
+    },
+  });
+  return source;
+}
+
+export async function findSourcesForDelete(
+  workspaceId: string,
+  sourceIds: string[],
+) {
+  return prisma.source.findMany({
+    where: { workspaceId, id: { in: sourceIds } },
+    select: { id: true, fileUrl: true },
+  });
+}
+
+export async function deleteManySourcesInWorkspace(
+  workspaceId: string,
+  sourceIds: string[],
+) {
+  return prisma.source.deleteMany({
+    where: { workspaceId, id: { in: sourceIds } },
+  });
+}

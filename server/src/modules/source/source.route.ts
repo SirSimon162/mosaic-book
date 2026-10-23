@@ -4,6 +4,8 @@ import { Status } from "../../lib/http-code.js";
 import { workspaceIdParamSchema } from "../workspace/workspace.types.js";
 import {
   createSource,
+  deleteManySources,
+  deleteSource,
   getSourceById,
   importPdfSource,
   importWebsiteSource,
@@ -11,6 +13,7 @@ import {
   parseListQuery,
 } from "./source.service.js";
 import {
+  bulkDeleteSourcesSchema,
   createSourceSchema,
   importPdfSchema,
   importWebsiteSchema,
@@ -81,7 +84,19 @@ sourceRoutes.post("/import/pdf", upload.single("file"), async (req, res) => {
   return sendSuccess(res, Status.CREATED, source);
 });
 
-// sourceRoutes.post("/bulk-delete", async (req, res) => { })
+sourceRoutes.post("/bulk-delete", async (req, res) => {
+  const params = workspaceIdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  const workspaceId = params.data.workspaceId;
+  const body = bulkDeleteSourcesSchema.safeParse(req.body);
+  if (!body.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  await deleteManySources(workspaceId, body.data);
+  return sendSuccess(res, Status.OK, null);
+});
 
 sourceRoutes.get("/:sourceId", async (req, res) => {
   const params = sourceIdParamSchema.safeParse(req.params);
@@ -94,6 +109,15 @@ sourceRoutes.get("/:sourceId", async (req, res) => {
   return sendSuccess(res, Status.OK, source);
 });
 
-// sourceRoutes.delete("/:sourceId", async (req, res) => { })
+sourceRoutes.delete("/:sourceId", async (req, res) => {
+  const params = sourceIdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  const sourceId = params.data.sourceId;
+  const workspaceId = params.data.workspaceId;
+  await deleteSource(workspaceId, sourceId);
+  return sendSuccess(res, Status.OK, null);
+});
 
 export default sourceRoutes;
