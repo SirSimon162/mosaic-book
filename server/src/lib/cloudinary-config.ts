@@ -1,4 +1,4 @@
-const cloudinary = require("cloudinary").v2;
+import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import environment from "../config/env.js";
 import AppError from "./http-error.js";

@@ -11,7 +11,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "migrate": "prisma migrate dev",
-    "inngest:dev": "npx inngest-cli@latest dev -u http://localhost:8080/api/inngest"
+    "inngest:dev": "npx inngest-cli@latest dev -u http://localhost:9090/api/inngest"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
