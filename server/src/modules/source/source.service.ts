@@ -25,7 +25,6 @@ import {
   getSource,
   getSourcesByWorkspaceId,
 } from "./source.repository.js";
-import { scrapeWebsite } from "../../lib/firecrawl.js";
 import { SourceType } from "../../generated/prisma/enums.js";
 import { deleteAsset, saveUpload } from "../../lib/cloudinary-config.js";
 import { Prisma } from "../../generated/prisma/client.js";
@@ -70,15 +69,18 @@ export async function importWebsiteSource(
   workspaceId: string,
   input: ImportWebsite,
 ): Promise<PublicSource> {
-  const scraped = await scrapeWebsite(input.url);
-  const processedWebsiteSource = await createWebsiteSourceInWorkspace(workspaceId, {
+  const source = await createWebsiteSourceInWorkspace(workspaceId, {
     type: SourceType.WEBSITE,
-    title: input.title || scraped.title || input.url,
-    content: scraped.markdown,
-    url: scraped.sourceUrl,
-    metadata: { importedFrom: scraped.sourceUrl },
+    title: input.title,
+    content: null,
+    url: input.url,
+    metadata: { importedFrom: input.url },
   });
-  return publicSourceSchema.parse(processedWebsiteSource);
+  await enqueueSourceProcessing({
+    sourceId: source.id,
+    workspaceId,
+  });
+  return publicSourceSchema.parse(source);
 }
 
 export async function importPdfSource(

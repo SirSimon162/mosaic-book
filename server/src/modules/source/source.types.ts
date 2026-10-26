@@ -60,7 +60,7 @@ export const createWebsiteSourceSchema = z.object({
     .trim()
     .min(1, "Title is required")
     .max(200, "Title must be less than 200 characters"),
-  content: z.string().trim().min(1, "Content is required"),
+  content: z.string().trim().min(1, "Content is required").nullable(),
   url: z.url().trim().min(1, "URL is required"),
   metadata: z
     .object({

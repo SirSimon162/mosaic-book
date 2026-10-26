@@ -64,7 +64,7 @@ export async function createWebsiteSourceInWorkspace(
       title: data.title,
       source: data.content,
       url: data.url,
-      status: SourceStatus.COMPLETED,
+      status: SourceStatus.PENDING,
       metadata: {
         importedFrom: data.metadata?.importedFrom ?? data.url,
       },
@@ -147,6 +147,7 @@ export async function completeSource(
   sourceId: string,
   data: {
     source?: string;
+    url?: string;
     metadata?: Prisma.InputJsonValue;
   },
 ) {
@@ -155,6 +156,7 @@ export async function completeSource(
     data: {
       status: SourceStatus.COMPLETED,
       ...(data.source !== undefined ? { source: data.source } : {}),
+      ...(data.url !== undefined ? { url: data.url } : {}),
       ...(data.metadata !== undefined ? { metadata: data.metadata } : {}),
     },
   });

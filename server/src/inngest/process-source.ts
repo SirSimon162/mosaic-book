@@ -2,6 +2,7 @@ import { NonRetriableError } from "inngest";
 import { Prisma } from "../generated/prisma/client.js";
 import { SourceStatus, SourceType } from "../generated/prisma/enums.js";
 import { inngest } from "../lib/inngest.js";
+import { EmptyWebsiteError, scrapeWebsite } from "../lib/firecrawl.js";
 import { EmptyPdfError, extractPdfFromCloudinary } from "../lib/pdf.js";
 import {
   completeSource,
@@ -101,11 +102,35 @@ export const processSource = inngest.createFunction(
       return { pageCount: extracted.pageCount };
     }
 
-    if (source.source) {
-      await step.run("complete-existing", () =>
-        completeSource(workspaceId, sourceId, {}),
+    if (source.type === SourceType.WEBSITE) {
+      if (!source.url) {
+        throw new NonRetriableError("Website source is missing url");
+      }
+
+      const url = source.url;
+      const scraped = await step.run("scrape-website", async () => {
+        try {
+          return await scrapeWebsite(url);
+        } catch (error) {
+          if (error instanceof EmptyWebsiteError) {
+            throw new NonRetriableError(error.message, { cause: error });
+          }
+          throw error;
+        }
+      });
+
+      await step.run("save", () =>
+        completeSource(workspaceId, sourceId, {
+          source: scraped.markdown,
+          url: scraped.sourceUrl,
+          metadata: {
+            ...metadataRecord(source.metadata),
+            importedFrom: scraped.sourceUrl,
+          },
+        }),
       );
-      return { skippedExtract: true };
+
+      return { sourceUrl: scraped.sourceUrl };
     }
 
     throw new NonRetriableError(`Unsupported source type: ${source.type}`);
