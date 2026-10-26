@@ -93,15 +93,11 @@ function publicIdFromUrl(fileUrl: string): string {
 }
 
 const deleteAsset = async (fileUrl: string) => {
-  try {
-    const publicId = publicIdFromUrl(fileUrl);
-    await cloudinary.uploader.destroy(publicId, {
-      invalidate: true,
-      resource_type: "raw",
-    });
-  } catch (e) {
-    throw e;
-  }
+  const publicId = publicIdFromUrl(fileUrl);
+  await cloudinary.uploader.destroy(publicId, {
+    invalidate: true,
+    resource_type: "raw",
+  });
 };
 
 const getSignedCloudinaryDownloadUrl = async (

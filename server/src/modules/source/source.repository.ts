@@ -1,3 +1,4 @@
+import { Prisma } from "../../generated/prisma/client.js";
 import { SourceStatus, SourceType } from "../../generated/prisma/enums.js";
 import { prisma } from "../../lib/prisma.js";
 import {
@@ -63,7 +64,7 @@ export async function createWebsiteSourceInWorkspace(
       title: data.title,
       source: data.content,
       url: data.url,
-      status: SourceStatus.PENDING,
+      status: SourceStatus.COMPLETED,
       metadata: {
         importedFrom: data.metadata?.importedFrom ?? data.url,
       },
@@ -120,6 +121,50 @@ export async function getSource(workspaceId: string, sourceId: string) {
     },
   });
   return source;
+}
+
+export async function updateSourceStatus(
+  workspaceId: string,
+  sourceId: string,
+  status: SourceStatus,
+) {
+  return prisma.source.update({
+    where: { id: sourceId, workspaceId },
+    data: { status },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      source: true,
+      fileUrl: true,
+      metadata: true,
+    },
+  });
+}
+
+export async function completeSource(
+  workspaceId: string,
+  sourceId: string,
+  data: {
+    source?: string;
+    metadata?: Prisma.InputJsonValue;
+  },
+) {
+  return prisma.source.update({
+    where: { id: sourceId, workspaceId },
+    data: {
+      status: SourceStatus.COMPLETED,
+      ...(data.source !== undefined ? { source: data.source } : {}),
+      ...(data.metadata !== undefined ? { metadata: data.metadata } : {}),
+    },
+  });
+}
+
+export async function failSource(workspaceId: string, sourceId: string) {
+  return prisma.source.update({
+    where: { id: sourceId, workspaceId },
+    data: { status: SourceStatus.FAILED },
+  });
 }
 
 export async function deleteSourceInWorkspace(

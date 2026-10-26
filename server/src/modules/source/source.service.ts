@@ -2,7 +2,6 @@ import { Request } from "express";
 import {
   BulkDeleteSources,
   CreateSource,
-  CreateWebsiteSource,
   ImportPdf,
   ImportWebsite,
   ListSourcesQuery,
@@ -31,19 +30,6 @@ import { SourceType } from "../../generated/prisma/enums.js";
 import { deleteAsset, saveUpload } from "../../lib/cloudinary-config.js";
 import { Prisma } from "../../generated/prisma/client.js";
 import { enqueueSourceProcessing } from "../../lib/source-events.js";
-import { extractPdfFromBuffer } from "../../lib/pdf.js";
-
-async function createAndProcessSource(
-  workspaceId: string,
-  data: CreateWebsiteSource,
-) {
-  const source = await createWebsiteSourceInWorkspace(workspaceId, data);
-  await enqueueSourceProcessing({
-    sourceId: source.id,
-    workspaceId: workspaceId,
-  });
-  return source;
-}
 
 export function parseListQuery(query: Request["query"]) {
   const parsed = listSourcesQuerySchema.safeParse(query);
@@ -85,7 +71,7 @@ export async function importWebsiteSource(
   input: ImportWebsite,
 ): Promise<PublicSource> {
   const scraped = await scrapeWebsite(input.url);
-  const processedWebsiteSource = await createAndProcessSource(workspaceId, {
+  const processedWebsiteSource = await createWebsiteSourceInWorkspace(workspaceId, {
     type: SourceType.WEBSITE,
     title: input.title || scraped.title || input.url,
     content: scraped.markdown,
@@ -100,43 +86,31 @@ export async function importPdfSource(
   input: ImportPdf,
   file: Express.Multer.File,
 ): Promise<PublicSource> {
-  const fileUrl = await saveUpload(file);
-  let content: string | null = null;
-  let pageCount: number | undefined;
+  const uploaded = await saveUpload(file);
+  let source;
   try {
-    const extracted = await extractPdfFromBuffer(file.buffer);
-    content = extracted.text;
-    pageCount = extracted.pageCount;
-  } catch (e) {
-    if (
-      e instanceof AppError &&
-      e.message.includes("No text could be extracted from the PDF")
-    ) {
-      content = null;
-    } else {
-      throw e;
-    }
-  }
-  try {
-    const processedPdfSource = await createPdfSourceInWorkspace(workspaceId, {
+    source = await createPdfSourceInWorkspace(workspaceId, {
       type: SourceType.PDF,
       title: input.title,
-      content: content,
-      fileUrl: fileUrl.secureUrl,
+      content: null,
+      fileUrl: uploaded.secureUrl,
       metadata: {
-        fileUrl: fileUrl.secureUrl,
-        fileName: fileUrl.originalname,
-        fileSize: fileUrl.bytes,
-        publicId: fileUrl.publicId,
-        resourceType: fileUrl.resourceType,
-        pageCount: pageCount,
+        fileUrl: uploaded.secureUrl,
+        fileName: uploaded.originalname,
+        fileSize: uploaded.bytes,
+        publicId: uploaded.publicId,
+        resourceType: uploaded.resourceType,
       },
     });
-    return publicSourceSchema.parse(processedPdfSource);
   } catch (e) {
-    await deleteAsset(fileUrl.secureUrl).catch(() => undefined);
+    await deleteAsset(uploaded.secureUrl).catch(() => undefined);
     throw e;
   }
+  await enqueueSourceProcessing({
+    sourceId: source.id,
+    workspaceId,
+  });
+  return publicSourceSchema.parse(source);
 }
 
 export async function deleteSource(workspaceId: string, sourceId: string) {

@@ -1,7 +1,12 @@
 import { extractText, getDocumentProxy } from "unpdf";
 import { getSignedCloudinaryDownloadUrl } from "./cloudinary-config.js";
-import AppError from "./http-error.js";
-import { Status } from "./http-code.js";
+
+export class EmptyPdfError extends Error {
+  constructor(message = "No text could be extracted from the PDF") {
+    super(message);
+    this.name = "EmptyPdfError";
+  }
+}
 
 export type PdfExtractResult = {
   text: string;
@@ -12,10 +17,7 @@ export type PdfExtractResult = {
 async function downloadPdf(url: string) {
   const response = await fetch(url);
   if (!response.ok) {
-    throw new AppError(
-      `Failed to download PDF (${response.status})`,
-      Status.BAD_REQUEST,
-    );
+    throw new Error(`Failed to download PDF (${response.status})`);
   }
   return response.arrayBuffer();
 }
@@ -41,10 +43,7 @@ export async function extractPdfFromBuffer(
   const joined = pages.filter(Boolean).join("\n\n");
 
   if (!joined) {
-    throw new AppError(
-      "No text could be extracted from the PDF",
-      Status.BAD_REQUEST,
-    );
+    throw new EmptyPdfError();
   }
   return {
     text: joined,
@@ -69,9 +68,8 @@ export async function extractPdfFromCloudinary(input: {
     }
     const signedUrl = await getSignedCloudinaryDownloadUrl(input.publicId);
     if (!signedUrl) {
-      throw new AppError(
+      throw new Error(
         "PDF download requires authentication. Add CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET to server/.env, or re-upload the PDF.",
-        Status.BAD_REQUEST,
       );
     }
     const buffer = await downloadPdf(signedUrl);
