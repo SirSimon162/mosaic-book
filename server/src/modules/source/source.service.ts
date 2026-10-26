@@ -4,7 +4,9 @@ import {
   CreateSource,
   ImportPdf,
   ImportWebsite,
+  ImportYouTube,
   ListSourcesQuery,
+  ReprocessSources,
   listSourcesQuerySchema,
   PublicListSources,
   publicListSourcesSchema,
@@ -19,16 +21,20 @@ import {
   createPdfSourceInWorkspace,
   createSourceInWorkspace,
   createWebsiteSourceInWorkspace,
+  createYoutubeSourceInWorkspace,
   deleteManySourcesInWorkspace,
   deleteSourceInWorkspace,
   findSourcesForDelete,
+  findSourcesForReprocess,
   getSource,
   getSourcesByWorkspaceId,
+  resetSourcesForReprocess,
 } from "./source.repository.js";
 import { SourceType } from "../../generated/prisma/enums.js";
 import { deleteAsset, saveUpload } from "../../lib/cloudinary-config.js";
 import { Prisma } from "../../generated/prisma/client.js";
 import { enqueueSourceProcessing } from "../../lib/source-events.js";
+import { parseYoutubeVideoId, youtubeWatchUrl } from "../../lib/youtube.js";
 
 export function parseListQuery(query: Request["query"]) {
   const parsed = listSourcesQuerySchema.safeParse(query);
@@ -81,6 +87,45 @@ export async function importWebsiteSource(
     workspaceId,
   });
   return publicSourceSchema.parse(source);
+}
+
+export async function importYoutubeSource(
+  workspaceId: string,
+  input: ImportYouTube,
+): Promise<PublicSource> {
+  const videoId = parseYoutubeVideoId(input.url);
+  if (!videoId) {
+    throw new AppError("Invalid YouTube URL", Status.BAD_REQUEST);
+  }
+  const source = await createYoutubeSourceInWorkspace(workspaceId, {
+    type: SourceType.YOUTUBE,
+    title: input.title,
+    content: null,
+    url: youtubeWatchUrl(videoId),
+    metadata: { importedFrom: input.url, videoId },
+  });
+  await enqueueSourceProcessing({
+    sourceId: source.id,
+    workspaceId,
+  });
+  return publicSourceSchema.parse(source);
+}
+
+export async function reprocessSources(
+  workspaceId: string,
+  data: ReprocessSources,
+) {
+  const sources = await findSourcesForReprocess(workspaceId, data.sourceIds);
+  const idsToReprocess = sources.map((source) => source.id);
+  if (idsToReprocess.length === 0) {
+    return;
+  }
+  await resetSourcesForReprocess(workspaceId, idsToReprocess);
+  await Promise.all(
+    idsToReprocess.map((sourceId) =>
+      enqueueSourceProcessing({ sourceId, workspaceId }),
+    ),
+  );
 }
 
 export async function importPdfSource(

@@ -9,14 +9,18 @@ import {
   getSourceById,
   importPdfSource,
   importWebsiteSource,
+  importYoutubeSource,
   listSourcesByWorkspaceId,
   parseListQuery,
+  reprocessSources,
 } from "./source.service.js";
 import {
   bulkDeleteSourcesSchema,
   createSourceSchema,
   importPdfSchema,
   importWebsiteSchema,
+  importYouTubeSchema,
+  reprocessSourcesSchema,
   sourceIdParamSchema,
 } from "./source.types.js";
 import { upload } from "../../lib/cloudinary-config.js";
@@ -62,6 +66,20 @@ sourceRoutes.post("/import/website", async (req, res) => {
   return sendSuccess(res, Status.CREATED, source);
 });
 
+sourceRoutes.post("/import/youtube", async (req, res) => {
+  const params = workspaceIdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  const workspaceId = params.data.workspaceId;
+  const body = importYouTubeSchema.safeParse(req.body);
+  if (!body.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  const source = await importYoutubeSource(workspaceId, body.data);
+  return sendSuccess(res, Status.CREATED, source);
+});
+
 sourceRoutes.post("/import/pdf", upload.single("file"), async (req, res) => {
   const params = workspaceIdParamSchema.safeParse(req.params);
   if (!params.success) {
@@ -82,6 +100,20 @@ sourceRoutes.post("/import/pdf", upload.single("file"), async (req, res) => {
     req.file as Express.Multer.File,
   );
   return sendSuccess(res, Status.CREATED, source);
+});
+
+sourceRoutes.post("/reprocess", async (req, res) => {
+  const params = workspaceIdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  const workspaceId = params.data.workspaceId;
+  const body = reprocessSourcesSchema.safeParse(req.body);
+  if (!body.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  await reprocessSources(workspaceId, body.data);
+  return sendSuccess(res, Status.OK, null);
 });
 
 sourceRoutes.post("/bulk-delete", async (req, res) => {

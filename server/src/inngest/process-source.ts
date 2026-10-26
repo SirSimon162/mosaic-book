@@ -4,6 +4,7 @@ import { SourceStatus, SourceType } from "../generated/prisma/enums.js";
 import { inngest } from "../lib/inngest.js";
 import { EmptyWebsiteError, scrapeWebsite } from "../lib/firecrawl.js";
 import { EmptyPdfError, extractPdfFromCloudinary } from "../lib/pdf.js";
+import { EmptyYoutubeError, fetchYoutubeTranscript } from "../lib/youtube.js";
 import {
   completeSource,
   failSource,
@@ -131,6 +132,51 @@ export const processSource = inngest.createFunction(
       );
 
       return { sourceUrl: scraped.sourceUrl };
+    }
+
+    if (source.type === SourceType.YOUTUBE) {
+      if (!source.url) {
+        throw new NonRetriableError("YouTube source is missing url");
+      }
+
+      const url = source.url;
+      const transcript = await step.run("fetch-transcript", async () => {
+        try {
+          return await fetchYoutubeTranscript(url);
+        } catch (error) {
+          if (error instanceof EmptyYoutubeError) {
+            throw new NonRetriableError(error.message, { cause: error });
+          }
+          throw error;
+        }
+      });
+
+      await step.run("save", () =>
+        completeSource(workspaceId, sourceId, {
+          source: transcript.text,
+          url: transcript.sourceUrl,
+          metadata: {
+            ...metadataRecord(source.metadata),
+            importedFrom: transcript.sourceUrl,
+            videoId: transcript.videoId,
+          },
+        }),
+      );
+
+      return { sourceUrl: transcript.sourceUrl };
+    }
+
+    if (
+      source.type === SourceType.TEXT ||
+      source.type === SourceType.MARKDOWN
+    ) {
+      if (!source.source) {
+        throw new NonRetriableError(`${source.type} source is missing content`);
+      }
+      await step.run("complete-existing", () =>
+        completeSource(workspaceId, sourceId, {}),
+      );
+      return { skippedExtract: true };
     }
 
     throw new NonRetriableError(`Unsupported source type: ${source.type}`);

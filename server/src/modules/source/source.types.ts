@@ -69,6 +69,23 @@ export const createWebsiteSourceSchema = z.object({
     .optional(),
 });
 
+export const createYoutubeSourceSchema = z.object({
+  type: z.literal(SourceType.YOUTUBE),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Title is required")
+    .max(200, "Title must be less than 200 characters"),
+  content: z.string().trim().min(1, "Content is required").nullable(),
+  url: z.url().trim().min(1, "URL is required"),
+  metadata: z
+    .object({
+      importedFrom: z.url().nullable().optional(),
+      videoId: z.string().optional(),
+    })
+    .optional(),
+});
+
 export const createPdfSourceSchema = z.object({
   type: z.literal(SourceType.PDF),
   title: z
@@ -129,7 +146,10 @@ export const bulkDeleteSourcesSchema = z.object({
 });
 
 export const reprocessSourcesSchema = z.object({
-  sourceIds: z.array(z.uuid()).min(1, "At least one source ID is required"),
+  sourceIds: z
+    .array(z.uuid())
+    .min(1, "At least one source ID is required")
+    .max(10, "At most 10 source IDs are allowed"),
 });
 
 export const importWebSearchSchema = z.object({
@@ -149,6 +169,7 @@ export type PublicSource = z.infer<typeof publicSourceSchema>;
 export type PublicSourceDetail = z.infer<typeof publicSourceDetailSchema>;
 export type PublicListSources = z.infer<typeof publicListSourcesSchema>;
 export type CreateWebsiteSource = z.infer<typeof createWebsiteSourceSchema>;
+export type CreateYoutubeSource = z.infer<typeof createYoutubeSourceSchema>;
 export type CreatePdfSource = z.infer<typeof createPdfSourceSchema>;
 export type ImportWebsite = z.infer<typeof importWebsiteSchema>;
 export type ImportPdf = z.infer<typeof importPdfSchema>;

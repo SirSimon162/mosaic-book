@@ -5,6 +5,7 @@ import {
   CreatePdfSource,
   CreateSource,
   CreateWebsiteSource,
+  CreateYoutubeSource,
   ListSourcesQuery,
 } from "./source.types.js";
 
@@ -42,6 +43,7 @@ export async function createSourceInWorkspace(
       type: data.type,
       title: data.title,
       source: data.content,
+      status: SourceStatus.COMPLETED,
     },
     select: {
       id: true,
@@ -67,6 +69,33 @@ export async function createWebsiteSourceInWorkspace(
       status: SourceStatus.PENDING,
       metadata: {
         importedFrom: data.metadata?.importedFrom ?? data.url,
+      },
+    },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      status: true,
+    },
+  });
+  return source;
+}
+
+export async function createYoutubeSourceInWorkspace(
+  workspaceId: string,
+  data: CreateYoutubeSource,
+) {
+  const source = await prisma.source.create({
+    data: {
+      workspaceId,
+      type: SourceType.YOUTUBE,
+      title: data.title,
+      source: data.content,
+      url: data.url,
+      status: SourceStatus.PENDING,
+      metadata: {
+        importedFrom: data.metadata?.importedFrom ?? data.url,
+        ...(data.metadata?.videoId ? { videoId: data.metadata.videoId } : {}),
       },
     },
     select: {
@@ -183,6 +212,26 @@ export async function deleteSourceInWorkspace(
     },
   });
   return source;
+}
+
+export async function findSourcesForReprocess(
+  workspaceId: string,
+  sourceIds: string[],
+) {
+  return prisma.source.findMany({
+    where: { workspaceId, id: { in: sourceIds } },
+    select: { id: true },
+  });
+}
+
+export async function resetSourcesForReprocess(
+  workspaceId: string,
+  sourceIds: string[],
+) {
+  return prisma.source.updateMany({
+    where: { workspaceId, id: { in: sourceIds } },
+    data: { status: SourceStatus.PENDING },
+  });
 }
 
 export async function findSourcesForDelete(
