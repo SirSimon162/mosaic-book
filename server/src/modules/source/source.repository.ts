@@ -88,7 +88,9 @@ export async function createPdfSourceInWorkspace(
       type: SourceType.PDF,
       title: data.title,
       fileUrl: data.fileUrl,
+      source: data.content,
       status: SourceStatus.PENDING,
+      metadata: data.metadata ?? {},
     },
     select: {
       id: true,

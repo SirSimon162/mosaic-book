@@ -30,21 +30,18 @@ import { scrapeWebsite } from "../../lib/firecrawl.js";
 import { SourceType } from "../../generated/prisma/enums.js";
 import { deleteAsset, saveUpload } from "../../lib/cloudinary-config.js";
 import { Prisma } from "../../generated/prisma/client.js";
+import { enqueueSourceProcessing } from "../../lib/source-events.js";
+import { extractPdfFromBuffer } from "../../lib/pdf.js";
 
 async function createAndProcessSource(
   workspaceId: string,
   data: CreateWebsiteSource,
 ) {
   const source = await createWebsiteSourceInWorkspace(workspaceId, data);
-  {
-    /*
-    TODO: Enqueue source processing using Ingest
-    await enqueueSourceProcessing({
+  await enqueueSourceProcessing({
     sourceId: source.id,
-    workspaceId: workspaceId
-  })
-  */
-  }
+    workspaceId: workspaceId,
+  });
   return source;
 }
 
@@ -104,15 +101,40 @@ export async function importPdfSource(
   file: Express.Multer.File,
 ): Promise<PublicSource> {
   const fileUrl = await saveUpload(file);
+  let content: string | null = null;
+  let pageCount: number | undefined;
+  try {
+    const extracted = await extractPdfFromBuffer(file.buffer);
+    content = extracted.text;
+    pageCount = extracted.pageCount;
+  } catch (e) {
+    if (
+      e instanceof AppError &&
+      e.message.includes("No text could be extracted from the PDF")
+    ) {
+      content = null;
+    } else {
+      throw e;
+    }
+  }
   try {
     const processedPdfSource = await createPdfSourceInWorkspace(workspaceId, {
       type: SourceType.PDF,
       title: input.title,
-      fileUrl: fileUrl,
+      content: content,
+      fileUrl: fileUrl.secureUrl,
+      metadata: {
+        fileUrl: fileUrl.secureUrl,
+        fileName: fileUrl.originalname,
+        fileSize: fileUrl.bytes,
+        publicId: fileUrl.publicId,
+        resourceType: fileUrl.resourceType,
+        pageCount: pageCount,
+      },
     });
     return publicSourceSchema.parse(processedPdfSource);
   } catch (e) {
-    await deleteAsset(fileUrl).catch(() => undefined);
+    await deleteAsset(fileUrl.secureUrl).catch(() => undefined);
     throw e;
   }
 }

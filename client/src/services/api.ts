@@ -10,20 +10,41 @@ type RequestOptions = RequestInit & {
   allowUnauthorized?: boolean;
 };
 
+export function isAbort(cause: unknown) {
+  return cause instanceof Error && cause.name === "AbortError";
+}
+
+export function withQuery(
+  path: string,
+  query?: Record<string, string | number | undefined>,
+) {
+  if (!query) return path;
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === "") continue;
+    params.set(key, String(value));
+  }
+  const search = params.toString();
+  return search ? `${path}?${search}` : path;
+}
+
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { allowUnauthorized, headers, ...init } = options;
+  const { allowUnauthorized, headers, body, ...init } = options;
+  const nextHeaders = new Headers(headers);
+  if (typeof body === "string" && !nextHeaders.has("Content-Type")) {
+    nextHeaders.set("Content-Type", "application/json");
+  }
 
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
+      body,
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...headers,
-      },
+      headers: nextHeaders,
     });
-  } catch {
+  } catch (cause) {
+    if (isAbort(cause)) throw cause;
     throw new Error("Could not reach Mosaic. Try again.");
   }
 
@@ -31,16 +52,16 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     return null as T;
   }
 
-  let body: Success<T> | Failure;
+  let payload: Success<T> | Failure;
   try {
-    body = (await response.json()) as Success<T> | Failure;
+    payload = (await response.json()) as Success<T> | Failure;
   } catch {
     throw new Error("Something went wrong");
   }
 
-  if (!body.success) {
-    throw new Error(body.error || "Something went wrong");
+  if (!payload.success) {
+    throw new Error(payload.error || "Something went wrong");
   }
 
-  return body.result;
+  return payload.result;
 }

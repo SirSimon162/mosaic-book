@@ -22,10 +22,12 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "firecrawl": "^4.50.0",
+    "inngest": "^4.26.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
     "multer-storage-cloudinary": "^4.0.0",
     "pg": "^8.23.0",
+    "unpdf": "^1.9.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {

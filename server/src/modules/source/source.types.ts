@@ -76,7 +76,18 @@ export const createPdfSourceSchema = z.object({
     .trim()
     .min(1, "Title is required")
     .max(200, "Title must be less than 200 characters"),
+  content: z.string().trim().min(1, "Content is required").nullable(),
   fileUrl: z.string().trim().min(1, "File URL is required"),
+  metadata: z
+    .object({
+      fileUrl: z.string().trim().min(1, "File URL is required"),
+      fileName: z.string().trim().min(1, "File name is required"),
+      fileSize: z.number().int().positive(),
+      publicId: z.string(),
+      resourceType: z.string().optional(),
+      pageCount: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 
 export const createSourceSchema = z.discriminatedUnion("type", [

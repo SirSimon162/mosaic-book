@@ -6,9 +6,11 @@ import type { RegisterBody, SessionUser } from "@/services/mosaic";
 export type SessionContextValue = {
   user: SessionUser | null;
   ready: boolean;
+  leaving: boolean;
   enter: () => void;
   login: (input: { email: string; password: string }) => Promise<void>;
   register: (input: RegisterBody) => Promise<void>;
+  logout: () => Promise<void>;
 };
 
 export const SessionContext = createContext<SessionContextValue | null>(null);

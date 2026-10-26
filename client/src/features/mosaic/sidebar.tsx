@@ -2,11 +2,12 @@
 
 import { BookOpen, Check, ChevronDown, MessageSquare, PanelLeft, Plus, Upload } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useSession } from "@/features/auth/session";
+import { ThemeIcon } from "@/features/shell/navbar/theme-switch";
+import { CHAT_MODELS, type ChatModel, type WorkspaceChat, type WorkspaceSummary } from "@/services/mosaic";
 import { Brand } from "@/shared/branding/brand";
 import { Mark } from "@/shared/branding/mark";
-import { ThemeIcon } from "@/features/shell/navbar/theme-switch";
-import type { WorkspaceChat, WorkspaceSummary } from "@/services/mosaic";
 import type { Mode } from "./data";
 
 const modes: { id: Mode; label: string; icon: typeof Upload }[] = [
@@ -22,27 +23,43 @@ export function Sidebar({
   activeId,
   name,
   chats,
+  model,
   creating,
+  saving,
+  removing,
+  canManage,
   error,
   onMode,
   onChat,
   onWorkspace,
   onCreate,
+  onRename,
+  onDelete,
+  onModel,
 }: {
   mode: Mode;
   chatId: string | null;
   workspaces: WorkspaceSummary[];
   activeId: string | null;
   name: string;
+  model: ChatModel;
   chats: WorkspaceChat[];
   creating: boolean;
+  saving: boolean;
+  removing: boolean;
+  canManage: boolean;
   error: string;
   onMode: (mode: Mode) => void;
   onChat: (id: string) => void;
   onWorkspace: (id: string) => void;
   onCreate: (name: string) => Promise<void>;
+  onRename: (name: string) => Promise<void>;
+  onDelete: () => Promise<void>;
+  onModel: (model: ChatModel) => Promise<void>;
 }) {
+  const { leaving, logout } = useSession();
   const [expanded, setExpanded] = useState(false);
+  const [leaveError, setLeaveError] = useState("");
 
   useEffect(() => {
     if (!expanded) return;
@@ -55,6 +72,15 @@ export function Sidebar({
 
   function collapse() {
     setExpanded(false);
+  }
+
+  async function leave() {
+    setLeaveError("");
+    try {
+      await logout();
+    } catch (cause) {
+      setLeaveError(cause instanceof Error ? cause.message : "Could not log out");
+    }
   }
 
   return (
@@ -128,13 +154,20 @@ export function Sidebar({
           workspaces={workspaces}
           activeId={activeId}
           name={name}
+          model={model}
           creating={creating}
+          saving={saving}
+          removing={removing}
+          canManage={canManage}
           error={error}
           onWorkspace={(id) => {
             onWorkspace(id);
             collapse();
           }}
           onCreate={onCreate}
+          onRename={onRename}
+          onDelete={onDelete}
+          onModel={onModel}
         />
       </div>
 
@@ -189,8 +222,19 @@ export function Sidebar({
             );
           })}
         </ul>
-        <div className="mt-2 flex justify-end border-t border-primary pt-2">
-          <ThemeIcon />
+        <div className="mt-2 border-t border-primary pt-2">
+          {leaveError && <p className="px-2 pb-2 text-xs text-secondary">{leaveError}</p>}
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => void leave()}
+              disabled={leaving}
+              className="rounded-lg px-2 py-2 text-sm text-secondary hover:text-primary disabled:opacity-60"
+            >
+              {leaving ? "Signing out" : "Log out"}
+            </button>
+            <ThemeIcon />
+          </div>
         </div>
       </div>
     </aside>
@@ -202,33 +246,57 @@ function WorkspaceSwitch({
   workspaces,
   activeId,
   name,
+  model,
   creating,
+  saving,
+  removing,
+  canManage,
   error,
   onWorkspace,
   onCreate,
+  onRename,
+  onDelete,
+  onModel,
 }: {
   workspaces: WorkspaceSummary[];
   activeId: string | null;
   name: string;
+  model: ChatModel;
   creating: boolean;
+  saving: boolean;
+  removing: boolean;
+  canManage: boolean;
   error: string;
   onWorkspace: (id: string) => void;
   onCreate: (name: string) => Promise<void>;
+  onRename: (name: string) => Promise<void>;
+  onDelete: () => Promise<void>;
+  onModel: (model: ChatModel) => Promise<void>;
 }) {
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [naming, setNaming] = useState(false);
+  const [naming, setNaming] = useState<null | "create" | "rename">(null);
+  const [confirming, setConfirming] = useState(false);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState("");
+  const busy = creating || saving || removing;
+
+  const dismiss = useCallback(() => {
+    setOpen(false);
+    setNaming(null);
+    setConfirming(false);
+    setDraft("");
+    setNotice("");
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     function onPointer(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(event.target as Node)) dismiss();
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") dismiss();
     }
     window.addEventListener("pointerdown", onPointer);
     window.addEventListener("keydown", onKey);
@@ -236,14 +304,7 @@ function WorkspaceSwitch({
       window.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("keydown", onKey);
     };
-  }, [open]);
-
-  function close() {
-    setOpen(false);
-    setNaming(false);
-    setDraft("");
-    setNotice("");
-  }
+  }, [open, dismiss]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -253,10 +314,29 @@ function WorkspaceSwitch({
       return;
     }
     try {
-      await onCreate(next);
-      close();
+      if (naming === "rename") await onRename(next);
+      else await onCreate(next);
+      dismiss();
     } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : "Could not create the workspace");
+      setNotice(cause instanceof Error ? cause.message : "Could not save the workspace");
+    }
+  }
+
+  async function confirmDelete() {
+    try {
+      await onDelete();
+      dismiss();
+    } catch {
+      setConfirming(true);
+    }
+  }
+
+  async function changeModel(next: ChatModel) {
+    setNotice("");
+    try {
+      await onModel(next);
+    } catch {
+      return;
     }
   }
 
@@ -267,19 +347,19 @@ function WorkspaceSwitch({
         type="button"
         aria-expanded={open}
         aria-controls={menuId}
-        disabled={!name}
+        disabled={removing}
         onClick={() => setOpen((value) => !value)}
         className="mt-1 flex w-full items-center justify-between gap-2 rounded-lg py-1 text-left hover:bg-primary disabled:hover:bg-transparent"
       >
         <span className="truncate font-secondary text-2xl tracking-tight text-primary">
-          {name || "Opening workspace"}
+          {name || "Workspace"}
         </span>
         <ChevronDown className={`size-4 shrink-0 text-secondary ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div
           id={menuId}
-          className="absolute top-full right-0 left-0 z-20 mt-1 rounded-xl border border-primary bg-secondary p-1 shadow-menu"
+          className="absolute top-full right-0 left-0 z-20 mt-1 max-h-[min(24rem,70vh)] overflow-y-auto rounded-xl border border-primary bg-secondary p-1 shadow-menu"
         >
           <ul className="max-h-48 overflow-y-auto">
             {workspaces.map((workspace) => {
@@ -290,7 +370,7 @@ function WorkspaceSwitch({
                     type="button"
                     onClick={() => {
                       onWorkspace(workspace.id);
-                      close();
+                      dismiss();
                     }}
                     className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ${
                       selected ? "bg-tertiary text-primary" : "text-secondary hover:bg-primary hover:text-primary"
@@ -305,7 +385,7 @@ function WorkspaceSwitch({
           </ul>
           <div className="my-1 border-t border-primary" />
           {naming ? (
-            <form onSubmit={submit} className="p-1">
+            <form onSubmit={(event) => void submit(event)} className="p-1">
               <input
                 autoFocus
                 value={draft}
@@ -320,22 +400,72 @@ function WorkspaceSwitch({
               {notice && <p className="mt-1 px-1 text-xs text-secondary">{notice}</p>}
               <button
                 type="submit"
-                disabled={creating}
+                disabled={busy}
                 className="mt-2 w-full rounded-lg bg-accent px-2 py-2 text-sm text-on-accent disabled:opacity-60"
               >
-                {creating ? "Creating" : "Create"}
+                {busy ? "Saving" : naming === "rename" ? "Save" : "Create"}
               </button>
             </form>
           ) : (
-            <button
-              type="button"
-              onClick={() => setNaming(true)}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-primary hover:bg-primary"
-            >
-              <Plus className="size-3.5 text-accent" />
-              New workspace
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setNaming("create");
+                  setDraft("");
+                  setNotice("");
+                  setConfirming(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-primary hover:bg-primary"
+              >
+                <Plus className="size-3.5 text-accent" />
+                New workspace
+              </button>
+              {canManage && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNaming("rename");
+                      setDraft(name);
+                      setNotice("");
+                      setConfirming(false);
+                    }}
+                    className="flex w-full items-center rounded-lg px-2 py-2 text-left text-sm text-primary hover:bg-primary"
+                  >
+                    Rename
+                  </button>
+                  <label className="block px-2 py-2">
+                    <span className="font-tertiary text-[10px] tracking-[0.16em] text-secondary">MODEL</span>
+                    <select
+                      value={model}
+                      disabled={busy}
+                      onChange={(event) => void changeModel(event.target.value as ChatModel)}
+                      className="mt-1 w-full rounded-lg border border-primary bg-primary px-2 py-2 text-sm text-primary outline-none focus:border-accent disabled:opacity-60"
+                    >
+                      {CHAT_MODELS.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirming) void confirmDelete();
+                      else setConfirming(true);
+                    }}
+                    disabled={busy}
+                    className="flex w-full items-center rounded-lg px-2 py-2 text-left text-sm text-primary hover:bg-primary disabled:opacity-60"
+                  >
+                    {removing ? "Deleting" : confirming ? "Confirm delete" : "Delete workspace"}
+                  </button>
+                </>
+              )}
+            </>
           )}
+          {notice && !naming && <p className="px-2 py-1 text-xs text-secondary">{notice}</p>}
           {error && !naming && <p className="px-2 py-1 text-xs text-secondary">{error}</p>}
         </div>
       )}
