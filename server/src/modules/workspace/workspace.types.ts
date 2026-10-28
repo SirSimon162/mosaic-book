@@ -6,8 +6,7 @@ import {
   ArtifactStatus,
   SourceStatus,
 } from "../../generated/prisma/enums.js";
-
-export const CHAT_MODELS = ["gpt-4o-mini", "gpt-4o"] as const;
+import { CHAT_MODELS } from "../../lib/ai-config.js";
 
 export const createWorkspaceSchema = z.object({
   name: z.string().trim().min(1),
