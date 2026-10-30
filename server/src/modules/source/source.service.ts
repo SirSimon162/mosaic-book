@@ -57,6 +57,10 @@ export async function createSource(
   data: CreateSource,
 ): Promise<PublicSource> {
   const source = await createSourceInWorkspace(workspaceId, data);
+  await enqueueSourceProcessing({
+    sourceId: source.id,
+    workspaceId,
+  });
   return publicSourceSchema.parse(source);
 }
 

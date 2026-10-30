@@ -1,5 +1,6 @@
 import { Prisma } from "../../generated/prisma/client.js";
 import { SourceStatus, SourceType } from "../../generated/prisma/enums.js";
+import { TextChunk } from "../../lib/chunking.js";
 import { prisma } from "../../lib/prisma.js";
 import {
   CreatePdfSource,
@@ -43,7 +44,7 @@ export async function createSourceInWorkspace(
       type: data.type,
       title: data.title,
       source: data.content,
-      status: SourceStatus.COMPLETED,
+      status: SourceStatus.PENDING,
     },
     select: {
       id: true,
@@ -251,4 +252,18 @@ export async function deleteManySourcesInWorkspace(
   return prisma.source.deleteMany({
     where: { workspaceId, id: { in: sourceIds } },
   });
+}
+
+export async function replaceSourceChunks(sourceId: string, chunks: TextChunk[]) {
+  await prisma.$transaction([
+    prisma.sourceChunk.deleteMany({ where: { sourceId } }),
+    prisma.sourceChunk.createMany({
+      data: chunks.map((chunk) => ({
+        sourceId,
+        index: chunk.index,
+        content: chunk.content,
+        metadata: (chunk.metadata ?? {}) as Prisma.InputJsonValue,
+      })),
+    }),
+  ]);
 }

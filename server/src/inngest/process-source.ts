@@ -9,8 +9,10 @@ import {
   completeSource,
   failSource,
   getSource,
+  replaceSourceChunks,
   updateSourceStatus,
 } from "../modules/source/source.repository.js";
+import { chunkPages, chunkText, type TextChunk } from "../lib/chunking.js";
 
 type ProcessSourceEvent = {
   sourceId: string;
@@ -33,6 +35,13 @@ function publicIdFromMetadata(
   return typeof record.publicId === "string" && record.publicId.length > 0
     ? { publicId: record.publicId }
     : {};
+}
+
+function persistChunks(sourceId: string, chunks: TextChunk[]) {
+  if (chunks.length === 0) {
+    throw new NonRetriableError("No chunks produced");
+  }
+  return replaceSourceChunks(sourceId, chunks);
 }
 
 async function markFailed(data: ProcessSourceEvent | undefined) {
@@ -90,6 +99,10 @@ export const processSource = inngest.createFunction(
         }
       });
 
+      await step.run("chunk", () =>
+        persistChunks(sourceId, chunkPages(extracted.pages)),
+      );
+
       await step.run("save", () =>
         completeSource(workspaceId, sourceId, {
           source: extracted.text,
@@ -119,6 +132,10 @@ export const processSource = inngest.createFunction(
           throw error;
         }
       });
+
+      await step.run("chunk", () =>
+        persistChunks(sourceId, chunkText(scraped.markdown)),
+      );
 
       await step.run("save", () =>
         completeSource(workspaceId, sourceId, {
@@ -151,6 +168,10 @@ export const processSource = inngest.createFunction(
         }
       });
 
+      await step.run("chunk", () =>
+        persistChunks(sourceId, chunkText(transcript.text)),
+      );
+
       await step.run("save", () =>
         completeSource(workspaceId, sourceId, {
           source: transcript.text,
@@ -170,9 +191,11 @@ export const processSource = inngest.createFunction(
       source.type === SourceType.TEXT ||
       source.type === SourceType.MARKDOWN
     ) {
-      if (!source.source) {
+      const text = source.source;
+      if (!text) {
         throw new NonRetriableError(`${source.type} source is missing content`);
       }
+      await step.run("chunk", () => persistChunks(sourceId, chunkText(text)));
       await step.run("complete-existing", () =>
         completeSource(workspaceId, sourceId, {}),
       );
