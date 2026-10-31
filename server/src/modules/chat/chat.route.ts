@@ -3,6 +3,13 @@ import { sendFail, sendSuccess } from "../../lib/api-response.js";
 import { Status } from "../../lib/http-code.js";
 import { workspaceIdParamSchema } from "../workspace/workspace.types.js";
 import {
+  createChat,
+  deleteChat,
+  getChatById,
+  listChats,
+  sendMessage,
+} from "./chat.service.js";
+import {
   chatIdParamSchema,
   createChatSchema,
   createMessageSchema,
@@ -15,7 +22,8 @@ chatRoutes.get("/", async (req, res) => {
   if (!params.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
   }
-  return sendSuccess(res, Status.OK, null);
+  const chats = await listChats(params.data.workspaceId);
+  return sendSuccess(res, Status.OK, chats);
 });
 
 chatRoutes.post("/", async (req, res) => {
@@ -27,7 +35,8 @@ chatRoutes.post("/", async (req, res) => {
   if (!body.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
   }
-  return sendSuccess(res, Status.CREATED, null);
+  const chat = await createChat(params.data.workspaceId, body.data);
+  return sendSuccess(res, Status.CREATED, chat);
 });
 
 chatRoutes.post("/:chatId/messages", async (req, res) => {
@@ -39,7 +48,12 @@ chatRoutes.post("/:chatId/messages", async (req, res) => {
   if (!body.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
   }
-  return sendSuccess(res, Status.CREATED, null);
+  const messages = await sendMessage(
+    params.data.workspaceId,
+    params.data.chatId,
+    body.data,
+  );
+  return sendSuccess(res, Status.CREATED, messages);
 });
 
 chatRoutes.get("/:chatId", async (req, res) => {
@@ -47,7 +61,11 @@ chatRoutes.get("/:chatId", async (req, res) => {
   if (!params.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
   }
-  return sendSuccess(res, Status.OK, null);
+  const chat = await getChatById(
+    params.data.workspaceId,
+    params.data.chatId,
+  );
+  return sendSuccess(res, Status.OK, chat);
 });
 
 chatRoutes.delete("/:chatId", async (req, res) => {
@@ -55,6 +73,7 @@ chatRoutes.delete("/:chatId", async (req, res) => {
   if (!params.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
   }
+  await deleteChat(params.data.workspaceId, params.data.chatId);
   return sendSuccess(res, Status.OK, null);
 });
 
