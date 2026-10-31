@@ -1,6 +1,8 @@
 # Mosaic Research
 
-A private study workspace. Sign in, open a workspace, and keep sources next to the questions you want to ask about them. Each workspace belongs to its owner and can include other members. Chat replies, retrieval, and generated study artifacts are still ahead.
+A private study workspace. Sign in, open a workspace, and keep sources next to the questions you want to ask about them. Each workspace belongs to its owner and can include other members.
+
+Ingest is in place: PDFs, websites, YouTube, and typed notes are stored, processed in the background, chunked, and marked `COMPLETED` or `FAILED`. Chat replies, retrieval over those chunks, and generated study artifacts are still ahead.
 
 ---
 
@@ -10,11 +12,12 @@ A private study workspace. Sign in, open a workspace, and keep sources next to t
 |---------|----------|
 | Account | Register, log in, log out, and restore the session from the auth cookie |
 | Workspaces | List, open, create, rename, delete, and set the default model (`gpt-4o-mini` or `gpt-4o`) |
-| Sources | Add a PDF, import a website, save text or Markdown, search, preview, refresh, and delete |
-| Chat | Saved thread titles load with the workspace. The composer keeps what you type in the tab only |
+| Sources | Add a PDF, import a website or YouTube URL, save text or Markdown, search, preview, refresh, reprocess, and delete |
+| Ingest | After create/import, a row is `PENDING`. Inngest extracts or scrapes, writes `SourceChunk` rows, then sets `COMPLETED` or `FAILED` |
+| Chat | Saved thread titles load with the workspace. The composer keeps what you type in the tab only. No chat API yet |
 | Learn | Saved artifact titles, types, and statuses load with the workspace. Nothing generates them yet |
 
-The Next.js app talks to the Express API with `credentials: "include"`. The server was left unchanged; the client matches the routes that already exist.
+The Next.js app talks to the Express API with `credentials: "include"`. The client covers auth, workspaces, and most source actions. YouTube import and reprocess exist on the server only so far.
 
 Opening Mosaic loads the first page of workspaces (50) and, when the account has more, the rest in the background. An account with no workspace gets one named **My Mosaic**. The app then opens the most recently updated workspace.
 
@@ -37,6 +40,8 @@ Authenticated routes read the `token` cookie (`httpOnly`, `sameSite: "lax"`, `se
 
 Register and login body: `email`, `password` (minimum 8). Register may also send `firstName` and `lastName`.
 
+Inngest calls `POST /api/inngest` (not behind `requireAuth`). That path is for the Inngest Dev Server / cloud, not for the browser.
+
 ### Signed in
 
 | Method | Path | Purpose |
@@ -55,7 +60,7 @@ All of these require the auth cookie. List and read include any workspace the us
 | `PUT` | `/api/workspace/:workspaceId` | `{ name? }` and/or `{ defaultModel? }` |
 | `DELETE` | `/api/workspace/:workspaceId` | — |
 
-`defaultModel` is `gpt-4o-mini` or `gpt-4o`. The client sends `gpt-4o-mini` when creating a workspace unless the owner picks the other model.
+`defaultModel` is `gpt-4o-mini` or `gpt-4o` (`CHAT_MODELS` in `server/src/lib/ai-config.ts`). The client sends `gpt-4o-mini` when creating a workspace unless the owner picks the other model.
 
 List result:
 
@@ -67,31 +72,50 @@ Workspace detail includes `defaultModel`, `users`, `sources`, `chats`, and `arti
 
 ### Sources
 
-Mounted at `/api/workspace/:workspaceId/source`. The caller must be a member of the workspace (the owner is added as a member on create).
+Mounted at `/api/workspace/:workspaceId/source`. The caller must be a member of the workspace (the owner is added as a member on create). Invalid membership is `404`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/source` | List. Optional `q` (title contains), `type`, `status` |
-| `POST` | `/source` | Create `TEXT` or `MARKDOWN`: `{ type, title, content }` |
-| `POST` | `/source/import/website` | `{ url, title }`. Scrapes with Firecrawl and stores Markdown |
-| `POST` | `/source/import/pdf` | Multipart field `file` plus `title`. PDF only, up to 50 MB, stored on Cloudinary |
+| `POST` | `/source` | Create `TEXT` or `MARKDOWN`: `{ type, title, content }`. Enqueued for chunking |
+| `POST` | `/source/import/website` | `{ url, title }`. Saves `PENDING` + URL; Firecrawl runs in the job |
+| `POST` | `/source/import/youtube` | `{ url, title }`. Saves `PENDING` + watch URL; transcript runs in the job |
+| `POST` | `/source/import/pdf` | Multipart field `file` plus `title`. PDF only, up to 50 MB, stored on Cloudinary as `raw` |
+| `POST` | `/source/reprocess` | `{ sourceIds }` (1–10). Resets found rows to `PENDING` and enqueues again. Unknown ids are ignored |
 | `GET` | `/source/:sourceId` | Detail: `source`, `url`, `fileUrl`, `metadata` |
 | `DELETE` | `/source/:sourceId` | Delete the row and, when present, the Cloudinary file |
 | `POST` | `/source/bulk-delete` | `{ sourceIds }` with 1–10 ids. The client chunks larger selections |
 
-New sources are stored as `PENDING`. Nothing moves them to `PROCESSING`, `COMPLETED`, or `FAILED` yet.
+Create/import returns `201` with `{ id, title, type, status }`. `status` is `PENDING` and `source` is filled later (except TEXT/MARKDOWN, which already store `content` and still go through the job for chunks).
 
 `SourceType`: `PDF`, `WEBSITE`, `YOUTUBE`, `TEXT`, `MARKDOWN`.
 
-`SourceStatus`: `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`.
+`SourceStatus`: `PENDING` → `PROCESSING` → `COMPLETED` or `FAILED`.
 
-YouTube, reprocess, and web-search payloads exist as schemas only. There is no route for them.
+A web-search payload schema still exists. There is no route for it.
+
+---
+
+## Ingest
+
+`inngest.send({ name: "source/process.requested", data: { sourceId, workspaceId } })` after every create/import (and after reprocess). `process-source` listens for that event.
+
+| Type | Job |
+|------|-----|
+| PDF | Download from Cloudinary, extract with unpdf, `chunkPages` (keeps `metadata.page`) |
+| WEBSITE | Firecrawl scrape → markdown, `chunkText` |
+| YOUTUBE | `youtube-transcript`, `chunkText` |
+| TEXT / MARKDOWN | Use stored `source`, `chunkText` |
+
+Then `replaceSourceChunks` (delete existing slices + `createMany` in one transaction) and `completeSource`. Empty extract/transcript/chunks or missing captions fail permanently (`FAILED`). Download/scrape blips retry (up to 3).
+
+Chunking lives in `server/src/lib/chunking.ts`. Defaults in `ai-config.ts`: `CHUNK_SIZE` 1000 characters, `CHUNK_OVERLAP` 100. Embeddings are not written yet.
 
 ---
 
 ## Data model
 
-`server/prisma/schema.prisma` is migrated and is ahead of the HTTP API.
+`server/prisma/schema.prisma` is migrated. Chat and artifact **write** APIs are still ahead of the HTTP layer.
 
 ```
 User
@@ -106,20 +130,20 @@ Chat
   └── messages
 
 Source
-  ├── source (inline text), url, fileUrl, metadata
-  └── chunks
+  ├── source (full text), url, fileUrl, metadata
+  └── chunks (index, content, metadata; no embedding column yet)
 
 LearningArtifact
   └── type, status, title, content, sourceIds
 ```
 
-`Message`, `SourceChunk`, and `LearningArtifact` are in Postgres. Only artifact summaries are returned, on the workspace detail route. There is no message, chunk, or artifact-write API.
+`Message` and `LearningArtifact` exist in Postgres. Workspace detail returns chat titles and artifact summaries only. There is no message or artifact-write API.
 
 ---
 
 ## Frontend
 
-`client/` is a Next.js app. API calls live in `client/src/services/` and keep the cookie on every request. `NEXT_PUBLIC_API_BASE_URL` defaults to `http://localhost:8080`.
+`client/` is a Next.js app. API calls live in `client/src/services/` and keep the cookie on every request. `NEXT_PUBLIC_API_BASE_URL` defaults to `http://localhost:8080`. If the API `PORT` is not 8080, set this to match.
 
 | UI | Calls |
 |----|--------|
@@ -138,26 +162,27 @@ A few choices keep this from doing extra work:
 - File uploads omit `Content-Type` so the browser can set the multipart boundary.
 - Source preview text is capped in the page, and the detail request runs only after a row is opened.
 
-Chat questions and Learn generation have no API, so those screens do not pretend to save or produce them.
+Chat questions and Learn generation have no API, so those screens do not pretend to save or produce them. The UI does not call YouTube import or reprocess yet.
 
 ---
 
 ## Still to build
 
-1. **Ingest.** Extract text, chunk, embed, and mark each source `COMPLETED` or `FAILED`. `server/src/lib/pdf.ts` can read a stored PDF and is not called by a route. Website import already stores Firecrawl Markdown on the row. The processing enqueue in the source service is still a comment.
-2. **YouTube.** Accept a video URL, store a transcript, and reuse the same source row.
-3. **Chat.** Create threads, store messages, and answer from retrieved passages. The schema has `Chat` and `Message`. The UI can list titles only.
-4. **Retrieval.** Embeddings, a vector index partitioned by workspace, and citations in the answer.
-5. **Learn.** Generate summaries, takeaways, flashcards, quizzes, mind maps, and reports, then return their content. The UI can show title, type, and status.
-6. **Sharing.** Invite members. The membership relation exists; the product UI is owner-only for rename, model, and delete.
-7. **Query-time extras.** Web search and cross-chat memory, if those providers are added.
-8. **Hardening.** Rate limits, and a place to show ingest errors on a source.
+1. **Chat.** Create threads, store messages, stub then real model replies. Schema has `Chat` and `Message`. The UI can list titles only.
+2. **Retrieval.** Embed `SourceChunk.content` with `text-embedding-3-small` (1536 dims), search top `RAG_TOP_K`, put citations on `Message.citations`.
+3. **Learn.** Generate summaries, takeaways, flashcards, quizzes, mind maps, and reports (same Inngest shape as sources). The UI can show title, type, and status.
+4. **Sharing.** Invite members. The membership relation exists; the product UI is owner-only for rename, model, and delete.
+5. **Query-time extras.** Web search and cross-chat memory, if those providers are added.
+6. **Hardening.** Rate limits, and a place to show ingest errors on a source.
+7. **Client parity.** YouTube import and reprocess buttons.
 
 ---
 
 ## Run locally
 
 Postgres from `server/docker-compose.yml` (user `mosaic`, database `mosaicdb`, port `5432`).
+
+You need **three** processes: API, Inngest Dev Server, and the Next.js app.
 
 ```bash
 cd server
@@ -166,23 +191,35 @@ npx prisma migrate dev
 npm run dev
 ```
 
+Second terminal, also in `server/` (start this after the API is listening):
+
+```bash
+npm run inngest:dev
+```
+
+That CLI points at `http://localhost:9090/api/inngest`. If your `PORT` is not `9090`, change the script or pass `-u http://localhost:<PORT>/api/inngest`. UI: [http://localhost:8288](http://localhost:8288).
+
 ```bash
 cd client
 npm install
 npm run dev
 ```
 
-The API listens on port `8080`. The site listens on port `3000`. That origin is the one the API allows.
+The API default port is `8080` (`PORT` in `server/.env` overrides it). The site listens on port `3000`. That origin is the one the API allows.
+
+After a PDF/website/YouTube/text import you should see `source/process.requested` in the Inngest UI, then `SourceChunk` rows in Prisma Studio (`npx prisma studio` from `server/`).
 
 ---
 
 ## Environment
 
-**Server, required:** `DATABASE_URL`, `JWT_SECRET`.
+**Server, required at boot:** `DATABASE_URL`, `JWT_SECRET`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
 
-**Server, required for the features that use them:** `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` for PDFs. `FIRECRAWL_API_KEY` for website import.
+**Server, required for website import:** `FIRECRAWL_API_KEY`.
 
-**Server, optional:** `PORT` (default `8080`), `JWT_EXPIRES_IN` (days, default `7`), `NODE_ENV` (`production` sets a secure cookie).
+**Server, optional:** `PORT` (default `8080`), `JWT_EXPIRES_IN` (days, default `7`), `NODE_ENV` (`production` sets a secure cookie). Local Inngest uses `isDev` when `NODE_ENV` is not `production`; you do not need `INNGEST_EVENT_KEY` locally. Production needs `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`.
+
+Cloudinary’s `CLOUDINARY_URL` is not read. Use the three separate vars. The part after `@` in that URL is the cloud name.
 
 **Client, optional:** `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8080`).
 
@@ -193,20 +230,21 @@ The API listens on port `8080`. The site listens on port `3000`. That origin is 
 ```
 mosaic-research/
   README.md
-  server/     Express, Prisma, auth, workspaces, sources
+  server/     Express, Prisma, auth, workspaces, sources, Inngest ingest
   client/     Next.js workspace UI
 ```
 
-Server code is layered route → service → repository, with Cloudinary, Firecrawl, and the unused PDF helper in `server/src/lib/`.
+Server code is layered route → service → repository. Helpers live in `server/src/lib/` (Cloudinary, Firecrawl, PDF, YouTube, chunking, Inngest client). The process job is `server/src/inngest/process-source.ts`.
 
 ---
 
 ## Security
 
-- Workspace reads and source routes require membership.
-- Workspace rename, model changes, and delete are limited to the owner in the query.
+- Workspace reads and source routes require membership (`404` if the user is not a member).
+- Workspace rename, model changes, and delete are limited to the owner.
 - Responses omit `passwordHash`.
 - Passwords are hashed with Argon2id.
 - The auth cookie is `httpOnly`. The browser clears it by calling `POST /api/auth/logout`.
 - PDF upload runs only after the membership check. A failed database write deletes the Cloudinary file.
+- `/api/inngest` is unauthenticated by design; Inngest signs requests in production.
 - Source links in the UI are rendered only for `http` and `https` URLs.

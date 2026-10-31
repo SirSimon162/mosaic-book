@@ -17,6 +17,7 @@ import {
 } from "./workspace.service.js";
 import sourceRoutes from "../source/source.route.js";
 import { requireWorkspaceUserAccess } from "../../middleware/index.js";
+import chatRoutes from "../chat/chat.route.js";
 
 const workspaceRoutes: Router = express.Router();
 
@@ -73,6 +74,8 @@ workspaceRoutes.use(
   requireWorkspaceUserAccess,
   sourceRoutes,
 );
+
+workspaceRoutes.use("/:workspaceId/chat", requireWorkspaceUserAccess, chatRoutes);
 
 workspaceRoutes.get("/:workspaceId", async (req, res) => {
   const params = workspaceIdParamSchema.safeParse(req.params);
