@@ -1,7 +1,10 @@
 import { app } from "./app.js";
 import { environment } from "./config/index.js";
+import { ensureVectorIndex } from "./lib/vector.js";
 
 const PORT = environment.PORT;
+
+await ensureVectorIndex();
 
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

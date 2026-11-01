@@ -33,7 +33,8 @@ const environment = {
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET,
-  FIRECRAWL_API_KEY: process.env.FIRECRAWL_API_KEY
+  FIRECRAWL_API_KEY: process.env.FIRECRAWL_API_KEY,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
 };
 
 export default environment;

@@ -115,6 +115,7 @@ model SourceChunk {
   content    String
   tokenCount Int?
   metadata   Json?
+  embedding  Unsupported("vector(1536)")?
   createdAt  DateTime @default(now())
   source     Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
 
