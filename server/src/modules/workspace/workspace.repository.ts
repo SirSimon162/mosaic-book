@@ -22,6 +22,14 @@ export async function isWorkspaceUser(workspaceId: string, userId: string) {
   return row !== null;
 }
 
+export async function getWorkspaceDefaultModel(workspaceId: string) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { defaultModel: true },
+  });
+  return workspace?.defaultModel ?? null;
+}
+
 export async function isWorkspaceOwner(workspaceId: string, userId: string) {
   const row = await prisma.workspace.findFirst({
     where: {

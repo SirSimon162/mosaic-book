@@ -1,5 +1,7 @@
+import { Prisma } from "../../generated/prisma/client.js";
 import { MessageRole } from "../../generated/prisma/enums.js";
 import { prisma } from "../../lib/prisma.js";
+import { ChunkSearchHit } from "../source/source.types.js";
 import { CreateChat } from "./chat.types.js";
 
 const chatListSelect = {
@@ -12,6 +14,7 @@ const messageSelect = {
   id: true,
   role: true,
   content: true,
+  citations: true,
   createdAt: true,
 } as const;
 
@@ -63,10 +66,10 @@ export async function deleteChatInWorkspace(
   });
 }
 
-export async function createChatMessages(
+export async function createUserMessage(
   workspaceId: string,
   chatId: string,
-  data: { userContent: string; assistantContent: string },
+  content: string,
 ) {
   return prisma.$transaction(async (tx) => {
     const chat = await tx.chat.findFirst({
@@ -81,15 +84,7 @@ export async function createChatMessages(
       data: {
         chatId,
         role: MessageRole.USER,
-        content: data.userContent,
-      },
-      select: messageSelect,
-    });
-    const assistant = await tx.message.create({
-      data: {
-        chatId,
-        role: MessageRole.ASSISTANT,
-        content: data.assistantContent,
+        content,
       },
       select: messageSelect,
     });
@@ -97,7 +92,39 @@ export async function createChatMessages(
       where: { id: chatId },
       data: { updatedAt: new Date() },
     });
+    return user;
+  });
+}
 
-    return { user, assistant };
+export async function listRecentMessages(chatId: string, limit: number) {
+  const messages = await prisma.message.findMany({
+    where: { chatId },
+    select: messageSelect,
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+  return messages.reverse();
+}
+
+export async function createAssistantMessage(
+  chatId: string,
+  content: string,
+  citations: ChunkSearchHit[],
+) {
+  return prisma.$transaction(async (tx) => {
+    const assistant = await tx.message.create({
+      data: {
+        chatId,
+        role: MessageRole.ASSISTANT,
+        content,
+        citations: citations as Prisma.InputJsonValue,
+      },
+      select: messageSelect,
+    });
+    await tx.chat.update({
+      where: { id: chatId },
+      data: { updatedAt: new Date() },
+    });
+    return assistant;
   });
 }

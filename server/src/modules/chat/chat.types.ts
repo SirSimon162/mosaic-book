@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { MessageRole } from "../../generated/prisma/enums.js";
+import { chunkSearchHitSchema } from "../source/source.types.js";
 
 export const messageRoleSchema = z.enum(MessageRole);
 
@@ -18,13 +19,18 @@ export const createChatSchema = z.object({
 });
 
 export const createMessageSchema = z.object({
-  content: z.string().trim().min(1, "Content is required"),
+  content: z
+    .string()
+    .trim()
+    .min(1, "Content is required")
+    .max(8000, "Content must be at most 8000 characters"),
 });
 
 export const publicMessageSchema = z.object({
   id: z.uuid(),
   role: messageRoleSchema,
   content: z.string(),
+  citations: z.array(chunkSearchHitSchema).nullable(),
   createdAt: z.date(),
 });
 

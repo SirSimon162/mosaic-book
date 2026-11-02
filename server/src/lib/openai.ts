@@ -75,3 +75,53 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
   }
   return vectors;
 }
+
+export type ChatTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type CitedSource = {
+  sourceTitle: string;
+  page: number | null;
+  snippet: string;
+};
+
+function sourceBlock(sources: CitedSource[]) {
+  return sources
+    .map((source, index) => {
+      const page = source.page === null ? "" : ` (page ${source.page})`;
+      return `[${index + 1}] ${source.sourceTitle}${page}\n${source.snippet}`;
+    })
+    .join("\n\n");
+}
+
+export async function completeFromSources(input: {
+  model: string;
+  question: string;
+  priorTurns: ChatTurn[];
+  sources: CitedSource[];
+}): Promise<string> {
+  const openai = embedClient();
+  const response = await openai.chat.completions.create({
+    model: input.model,
+    temperature: 0.2,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Answer only from the numbered source excerpts. If they do not contain the answer, say you could not find it in the sources. Do not use outside knowledge.",
+      },
+      ...input.priorTurns,
+      {
+        role: "user",
+        content: `Sources:\n${sourceBlock(input.sources)}\n\nQuestion: ${input.question}`,
+      },
+    ],
+  });
+  const reply = response.choices[0]?.message?.content?.trim();
+  if (!reply) {
+    throw new Error("Chat model returned an empty reply");
+  }
+  return reply;
+}
