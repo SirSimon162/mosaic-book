@@ -152,6 +152,25 @@ export const reprocessSourcesSchema = z.object({
     .max(10, "At most 10 source IDs are allowed"),
 });
 
+export const searchSourcesSchema = z.object({
+  query: z
+    .string()
+    .trim()
+    .min(1, "Query is required")
+    .max(8000, "Query must be at most 8000 characters"),
+  sourceIds: z.array(z.uuid()).max(50).optional(),
+});
+
+export const chunkSearchHitSchema = z.object({
+  chunkId: z.uuid(),
+  sourceId: z.uuid(),
+  sourceTitle: z.string(),
+  index: z.number().int(),
+  page: z.number().int().nullable(),
+  snippet: z.string(),
+  score: z.number(),
+});
+
 export const importWebSearchSchema = z.object({
   title: z
     .string()
@@ -176,4 +195,6 @@ export type ImportPdf = z.infer<typeof importPdfSchema>;
 export type ImportYouTube = z.infer<typeof importYouTubeSchema>;
 export type BulkDeleteSources = z.infer<typeof bulkDeleteSourcesSchema>;
 export type ReprocessSources = z.infer<typeof reprocessSourcesSchema>;
+export type SearchSources = z.infer<typeof searchSourcesSchema>;
+export type ChunkSearchHit = z.infer<typeof chunkSearchHitSchema>;
 export type ImportWebSearch = z.infer<typeof importWebSearchSchema>;

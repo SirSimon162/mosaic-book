@@ -7,8 +7,11 @@ import {
   ImportYouTube,
   ListSourcesQuery,
   ReprocessSources,
+  SearchSources,
+  chunkSearchHitSchema,
   listSourcesQuerySchema,
   PublicListSources,
+  ChunkSearchHit,
   publicListSourcesSchema,
   PublicSource,
   PublicSourceDetail,
@@ -29,7 +32,9 @@ import {
   getSource,
   getSourcesByWorkspaceId,
   resetSourcesForReprocess,
+  searchChunks,
 } from "./source.repository.js";
+import { embedTexts } from "../../lib/openai.js";
 import { SourceType } from "../../generated/prisma/enums.js";
 import { deleteAsset, saveUpload } from "../../lib/cloudinary-config.js";
 import { Prisma } from "../../generated/prisma/client.js";
@@ -179,6 +184,18 @@ export async function deleteSource(workspaceId: string, sourceId: string) {
     }
     throw e;
   }
+}
+
+export async function searchWorkspaceSources(
+  workspaceId: string,
+  input: SearchSources,
+): Promise<ChunkSearchHit[]> {
+  const [embedding] = await embedTexts([input.query]);
+  if (!embedding) {
+    throw new AppError("Failed to embed query", Status.INTERNAL_SERVER_ERROR);
+  }
+  const hits = await searchChunks(workspaceId, embedding, input.sourceIds);
+  return chunkSearchHitSchema.array().parse(hits);
 }
 
 export async function deleteManySources(

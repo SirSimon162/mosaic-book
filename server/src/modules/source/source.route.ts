@@ -13,6 +13,7 @@ import {
   listSourcesByWorkspaceId,
   parseListQuery,
   reprocessSources,
+  searchWorkspaceSources,
 } from "./source.service.js";
 import {
   bulkDeleteSourcesSchema,
@@ -21,6 +22,7 @@ import {
   importWebsiteSchema,
   importYouTubeSchema,
   reprocessSourcesSchema,
+  searchSourcesSchema,
   sourceIdParamSchema,
 } from "./source.types.js";
 import { upload } from "../../lib/cloudinary-config.js";
@@ -128,6 +130,19 @@ sourceRoutes.post("/bulk-delete", async (req, res) => {
   }
   await deleteManySources(workspaceId, body.data);
   return sendSuccess(res, Status.OK, null);
+});
+
+sourceRoutes.post("/search", async (req, res) => {
+  const params = workspaceIdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  const body = searchSourcesSchema.safeParse(req.body);
+  if (!body.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  const hits = await searchWorkspaceSources(params.data.workspaceId, body.data);
+  return sendSuccess(res, Status.OK, hits);
 });
 
 sourceRoutes.get("/:sourceId", async (req, res) => {

@@ -1,8 +1,10 @@
 import { Prisma } from "../../generated/prisma/client.js";
 import { SourceStatus, SourceType } from "../../generated/prisma/enums.js";
+import { RAG_MIN_SCORE, RAG_TOP_K } from "../../lib/ai-config.js";
 import { TextChunk } from "../../lib/chunking.js";
 import { prisma } from "../../lib/prisma.js";
 import { toPgVector } from "../../lib/vector.js";
+import { ChunkSearchHit } from "./source.types.js";
 import {
   CreatePdfSource,
   CreateSource,
@@ -299,4 +301,66 @@ export async function replaceSourceChunks(
   );
 
   return chunks.length;
+}
+
+const SEARCH_SNIPPET_LENGTH = 240;
+
+export async function searchChunks(
+  workspaceId: string,
+  embedding: number[],
+  sourceIds?: string[],
+): Promise<ChunkSearchHit[]> {
+  if (sourceIds && sourceIds.length === 0) {
+    return [];
+  }
+
+  const vector = toPgVector(embedding);
+  const maxDistance = 1 - RAG_MIN_SCORE;
+  const sourceFilter = sourceIds
+    ? Prisma.sql`AND s.id IN (${Prisma.join(sourceIds)})`
+    : Prisma.empty;
+
+  const rows = await prisma.$queryRaw<
+    {
+      chunkId: string;
+      sourceId: string;
+      sourceTitle: string;
+      index: number;
+      page: number | null;
+      snippet: string;
+      score: number;
+    }[]
+  >`
+    SELECT
+      c.id AS "chunkId",
+      s.id AS "sourceId",
+      s.title AS "sourceTitle",
+      c."index" AS "index",
+      CASE
+        WHEN jsonb_typeof(c.metadata->'page') = 'number'
+        THEN (c.metadata->>'page')::int
+        ELSE NULL
+      END AS page,
+      left(c.content, ${SEARCH_SNIPPET_LENGTH}) AS snippet,
+      (1 - (c.embedding <=> ${vector}::vector))::float8 AS score
+    FROM "SourceChunk" c
+    JOIN "Source" s ON s.id = c."sourceId"
+    WHERE s."workspaceId" = ${workspaceId}
+      AND s.status = 'COMPLETED'::"SourceStatus"
+      AND c.embedding IS NOT NULL
+      AND (c.embedding <=> ${vector}::vector) <= ${maxDistance}
+      ${sourceFilter}
+    ORDER BY c.embedding <=> ${vector}::vector
+    LIMIT ${RAG_TOP_K}
+  `;
+
+  return rows.map((row) => ({
+    chunkId: row.chunkId,
+    sourceId: row.sourceId,
+    sourceTitle: row.sourceTitle,
+    index: Number(row.index),
+    page: row.page === null ? null : Number(row.page),
+    snippet: row.snippet,
+    score: Number(row.score),
+  }));
 }
