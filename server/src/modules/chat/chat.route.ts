@@ -1,13 +1,15 @@
-import express, { type Router } from "express";
+import express, { type Response, type Router } from "express";
 import { sendFail, sendSuccess } from "../../lib/api-response.js";
-import { Status } from "../../lib/http-code.js";
+import { Status, StatusCodes } from "../../lib/http-code.js";
+import AppError from "../../lib/http-error.js";
 import { workspaceIdParamSchema } from "../workspace/workspace.types.js";
 import {
   createChat,
   deleteChat,
   getChatById,
   listChats,
-  sendMessage,
+  streamChatReply,
+  type ChatStreamEvent,
 } from "./chat.service.js";
 import {
   chatIdParamSchema,
@@ -39,6 +41,11 @@ chatRoutes.post("/", async (req, res) => {
   return sendSuccess(res, Status.CREATED, chat);
 });
 
+function writeSse(res: Response, event: ChatStreamEvent | { type: "error"; message: string }) {
+  const { type, ...data } = event;
+  res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
 chatRoutes.post("/:chatId/messages", async (req, res) => {
   const params = chatIdParamSchema.safeParse(req.params);
   if (!params.success) {
@@ -48,12 +55,62 @@ chatRoutes.post("/:chatId/messages", async (req, res) => {
   if (!body.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
   }
-  const messages = await sendMessage(
-    params.data.workspaceId,
-    params.data.chatId,
-    body.data,
-  );
-  return sendSuccess(res, Status.CREATED, messages);
+
+  let finished = false;
+  let aborted = false;
+  res.on("close", () => {
+    if (!finished) {
+      aborted = true;
+    }
+  });
+
+  let started = false;
+  const start = () => {
+    if (started) {
+      return;
+    }
+    res.status(StatusCodes.OK);
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+    started = true;
+  };
+
+  try {
+    for await (const event of streamChatReply(
+      params.data.workspaceId,
+      params.data.chatId,
+      body.data,
+      () => aborted,
+    )) {
+      start();
+      if (!aborted) {
+        writeSse(res, event);
+      }
+    }
+    finished = true;
+    if (!res.writableEnded) {
+      res.end();
+    }
+  } catch (error) {
+    if (!started) {
+      if (error instanceof AppError) {
+        return sendFail(res, error.statusName, error.message);
+      }
+      console.error(error);
+      return sendFail(res, Status.INTERNAL_SERVER_ERROR, "Internal Server Error");
+    }
+    console.error(error);
+    if (!aborted) {
+      writeSse(res, { type: "error", message: "The reply failed." });
+    }
+    finished = true;
+    if (!res.writableEnded) {
+      res.end();
+    }
+  }
 });
 
 chatRoutes.get("/:chatId", async (req, res) => {

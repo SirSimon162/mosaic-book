@@ -96,12 +96,67 @@ function sourceBlock(sources: CitedSource[]) {
     .join("\n\n");
 }
 
-export async function completeFromSources(input: {
+function chatMessages(input: {
+  question: string;
+  priorTurns: ChatTurn[];
+  sources: CitedSource[];
+  summary: string | null;
+}) {
+  return [
+    {
+      role: "system" as const,
+      content:
+        "Answer only from the numbered source excerpts. If they do not contain the answer, say you could not find it in the sources. Do not use outside knowledge.",
+    },
+    ...(input.summary
+      ? [
+          {
+            role: "system" as const,
+            content: `Earlier in this conversation:\n${input.summary}`,
+          },
+        ]
+      : []),
+    ...input.priorTurns,
+    {
+      role: "user" as const,
+      content: `Sources:\n${sourceBlock(input.sources)}\n\nQuestion: ${input.question}`,
+    },
+  ];
+}
+
+export async function* streamFromSources(input: {
   model: string;
   question: string;
   priorTurns: ChatTurn[];
   sources: CitedSource[];
+  summary: string | null;
+}): AsyncGenerator<string> {
+  const openai = embedClient();
+  const stream = await openai.chat.completions.create({
+    model: input.model,
+    temperature: 0.2,
+    stream: true,
+    messages: chatMessages(input),
+  });
+  for await (const chunk of stream) {
+    const text = chunk.choices[0]?.delta?.content;
+    if (text) {
+      yield text;
+    }
+  }
+}
+
+export async function summarizeConversation(input: {
+  model: string;
+  previousSummary: string | null;
+  turns: ChatTurn[];
 }): Promise<string> {
+  const transcript = input.turns
+    .map((turn) => `${turn.role}: ${turn.content}`)
+    .join("\n");
+  const previous = input.previousSummary
+    ? `Previous summary:\n${input.previousSummary}\n\n`
+    : "";
   const openai = embedClient();
   const response = await openai.chat.completions.create({
     model: input.model,
@@ -110,18 +165,17 @@ export async function completeFromSources(input: {
       {
         role: "system",
         content:
-          "Answer only from the numbered source excerpts. If they do not contain the answer, say you could not find it in the sources. Do not use outside knowledge.",
+          "Compress this study chat into a short memory for the next turn. Keep the user's questions, the conclusions, and which sources were discussed. Do not add facts that are not in the transcript.",
       },
-      ...input.priorTurns,
       {
         role: "user",
-        content: `Sources:\n${sourceBlock(input.sources)}\n\nQuestion: ${input.question}`,
+        content: `${previous}New turns:\n${transcript}`,
       },
     ],
   });
-  const reply = response.choices[0]?.message?.content?.trim();
-  if (!reply) {
-    throw new Error("Chat model returned an empty reply");
+  const summary = response.choices[0]?.message?.content?.trim();
+  if (!summary) {
+    throw new Error("Chat model returned an empty summary");
   }
-  return reply;
+  return summary;
 }

@@ -106,6 +106,37 @@ export async function listRecentMessages(chatId: string, limit: number) {
   return messages.reverse();
 }
 
+export async function getChatSummaryState(chatId: string) {
+  return prisma.chat.findUnique({
+    where: { id: chatId },
+    select: { summary: true, summaryMessageCount: true },
+  });
+}
+
+export async function listChatTurns(chatId: string) {
+  return prisma.message.findMany({
+    where: { chatId },
+    select: { id: true, role: true, content: true },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+export async function updateChatSummary(
+  chatId: string,
+  summary: string,
+  summaryMessageCount: number,
+) {
+  return prisma.chat.update({
+    where: { id: chatId },
+    data: {
+      summary,
+      summaryMessageCount,
+      summarizedAt: new Date(),
+    },
+    select: { id: true },
+  });
+}
+
 export async function createAssistantMessage(
   chatId: string,
   content: string,
