@@ -13,6 +13,11 @@ import {
   updateSourceStatus,
 } from "../modules/source/source.repository.js";
 import { chunkPages, chunkText, type TextChunk } from "../lib/chunking.js";
+import {
+  EmbeddingConfigError,
+  embedTexts,
+  isPermanentOpenAIError,
+} from "../lib/openai.js";
 
 type ProcessSourceEvent = {
   sourceId: string;
@@ -37,11 +42,29 @@ function publicIdFromMetadata(
     : {};
 }
 
-function persistChunks(sourceId: string, chunks: TextChunk[]) {
+async function persistChunks(sourceId: string, chunks: TextChunk[]) {
   if (chunks.length === 0) {
     throw new NonRetriableError("No chunks produced");
   }
-  return replaceSourceChunks(sourceId, chunks);
+
+  let embeddings: number[][];
+  try {
+    embeddings = await embedTexts(chunks.map((chunk) => chunk.content));
+  } catch (error) {
+    if (
+      error instanceof EmbeddingConfigError ||
+      isPermanentOpenAIError(error)
+    ) {
+      throw new NonRetriableError(
+        error instanceof Error ? error.message : "Failed to embed chunks",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+
+  const count = await replaceSourceChunks(sourceId, chunks, embeddings);
+  return { count };
 }
 
 async function markFailed(data: ProcessSourceEvent | undefined) {
@@ -55,6 +78,7 @@ export const processSource = inngest.createFunction(
   {
     id: "process-source",
     retries: 3,
+    concurrency: { key: "event.data.sourceId", limit: 1 },
     triggers: [{ event: "source/process.requested" }],
     onFailure: async ({ event }) => {
       await markFailed(event.data.event.data as ProcessSourceEvent);

@@ -2,6 +2,7 @@ import { Prisma } from "../../generated/prisma/client.js";
 import { SourceStatus, SourceType } from "../../generated/prisma/enums.js";
 import { TextChunk } from "../../lib/chunking.js";
 import { prisma } from "../../lib/prisma.js";
+import { toPgVector } from "../../lib/vector.js";
 import {
   CreatePdfSource,
   CreateSource,
@@ -254,16 +255,48 @@ export async function deleteManySourcesInWorkspace(
   });
 }
 
-export async function replaceSourceChunks(sourceId: string, chunks: TextChunk[]) {
-  await prisma.$transaction([
-    prisma.sourceChunk.deleteMany({ where: { sourceId } }),
-    prisma.sourceChunk.createMany({
-      data: chunks.map((chunk) => ({
-        sourceId,
-        index: chunk.index,
-        content: chunk.content,
-        metadata: (chunk.metadata ?? {}) as Prisma.InputJsonValue,
-      })),
-    }),
-  ]);
+export async function replaceSourceChunks(
+  sourceId: string,
+  chunks: TextChunk[],
+  embeddings: number[][],
+): Promise<number> {
+  if (chunks.length !== embeddings.length) {
+    throw new Error(
+      `Chunk count ${chunks.length} did not match embedding count ${embeddings.length}`,
+    );
+  }
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.sourceChunk.deleteMany({ where: { sourceId } });
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const embedding = embeddings[i];
+        if (!chunk || !embedding) {
+          throw new Error(`Missing chunk or embedding at index ${i}`);
+        }
+        await tx.$executeRaw`
+          INSERT INTO "SourceChunk" (
+            id,
+            "sourceId",
+            index,
+            content,
+            metadata,
+            embedding
+          )
+          VALUES (
+            ${crypto.randomUUID()},
+            ${sourceId},
+            ${chunk.index},
+            ${chunk.content},
+            ${JSON.stringify(chunk.metadata ?? {})}::jsonb,
+            ${toPgVector(embedding)}::vector
+          )
+        `;
+      }
+    },
+    { timeout: 60_000 },
+  );
+
+  return chunks.length;
 }
