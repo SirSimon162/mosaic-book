@@ -22,6 +22,75 @@ export async function isWorkspaceUser(workspaceId: string, userId: string) {
   return row !== null;
 }
 
+const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export async function isWorkspaceMemberEmail(workspaceId: string, email: string) {
+  const row = await prisma.workspace.findFirst({
+    where: {
+      id: workspaceId,
+      users: { some: { email: { equals: email, mode: "insensitive" } } },
+    },
+    select: { id: true },
+  });
+  return row !== null;
+}
+
+export async function findPendingInvite(workspaceId: string, email: string) {
+  return prisma.workspaceInvite.findFirst({
+    where: {
+      workspaceId,
+      email,
+      acceptedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    select: { id: true, email: true, token: true, expiresAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function createInvite(
+  workspaceId: string,
+  email: string,
+  invitedById: string,
+) {
+  return prisma.workspaceInvite.create({
+    data: {
+      workspaceId,
+      email,
+      invitedById,
+      token: crypto.randomUUID() + crypto.randomUUID().replaceAll("-", ""),
+      expiresAt: new Date(Date.now() + INVITE_TTL_MS),
+    },
+    select: { id: true, email: true, token: true, expiresAt: true },
+  });
+}
+
+export async function findInviteByToken(token: string) {
+  return prisma.workspaceInvite.findUnique({
+    where: { token },
+    select: {
+      id: true,
+      workspaceId: true,
+      email: true,
+      expiresAt: true,
+      acceptedAt: true,
+    },
+  });
+}
+
+export async function acceptInvite(inviteId: string, workspaceId: string, userId: string) {
+  await prisma.$transaction([
+    prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { users: { connect: { id: userId } } },
+    }),
+    prisma.workspaceInvite.update({
+      where: { id: inviteId },
+      data: { acceptedAt: new Date() },
+    }),
+  ]);
+}
+
 export async function getWorkspaceDefaultModel(workspaceId: string) {
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },

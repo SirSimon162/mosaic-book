@@ -7,3 +7,5 @@ export const RAG_TOP_K = 6;
 export const RAG_MIN_SCORE = 0.5;
 export const CONVERSATION_SUMMARY_INTERVAL = 8;
 export const RECENT_MESSAGE_WINDOW = 12;
+export const ARTIFACT_SOURCE_CHAR_LIMIT = 12_000;
+export const ARTIFACT_TOTAL_CHAR_LIMIT = 48_000;

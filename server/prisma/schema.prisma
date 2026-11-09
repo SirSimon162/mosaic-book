@@ -37,6 +37,7 @@ model Workspace {
   chats        Chat[]
   sources      Source[]
   users        User[]             @relation("workspaceMembers")
+  invites      WorkspaceInvite[]
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   artifacts    LearningArtifact[]
@@ -152,6 +153,7 @@ model LearningArtifact {
   status      ArtifactStatus @default(PENDING)
   title       String
   content     Json?
+  error       String?
   sourceIds   String[]
   metadata    Json?
   createdAt   DateTime       @default(now())
@@ -161,4 +163,19 @@ model LearningArtifact {
   @@index([workspaceId])
   @@index([workspaceId, type])
   @@index([workspaceId, status])
+}
+
+model WorkspaceInvite {
+  id          String    @id @default(uuid())
+  workspaceId String
+  email       String
+  token       String    @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, email])
 }

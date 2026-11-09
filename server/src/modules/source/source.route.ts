@@ -26,6 +26,7 @@ import {
   sourceIdParamSchema,
 } from "./source.types.js";
 import { upload } from "../../lib/cloudinary-config.js";
+import { limitSourceSearch } from "../../middleware/index.js";
 
 const sourceRoutes: Router = express.Router({ mergeParams: true });
 
@@ -132,7 +133,7 @@ sourceRoutes.post("/bulk-delete", async (req, res) => {
   return sendSuccess(res, Status.OK, null);
 });
 
-sourceRoutes.post("/search", async (req, res) => {
+sourceRoutes.post("/search", limitSourceSearch, async (req, res) => {
   const params = workspaceIdParamSchema.safeParse(req.params);
   if (!params.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");

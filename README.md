@@ -11,11 +11,11 @@ Ingest, embeddings, and chat are in place. PDFs, websites, YouTube, and typed no
 | Surface | Behavior |
 |---------|----------|
 | Account | Register, log in, log out, and restore the session from the auth cookie |
-| Workspaces | List, open, create, rename, delete, and set the default model (`gpt-4o-mini` or `gpt-4o`) |
+| Workspaces | List, open, create, rename, delete, set the default model (`gpt-4o-mini` or `gpt-4o`), and invite a member |
 | Sources | Add a PDF, import a website or YouTube URL, save text or Markdown, search titles, find a passage, preview, refresh, reprocess, and delete |
 | Ingest | After create/import, a row is `PENDING`. Inngest extracts or scrapes, chunks, embeds, then sets `COMPLETED` or `FAILED`. The open workspace refreshes that status while any row is still in progress |
 | Chat | Create a thread, load its messages, stream a reply with citations, and delete the thread |
-| Learn | Saved artifact titles, types, and statuses load with the workspace. Nothing generates them yet |
+| Learn | Create a summary, takeaways, flashcards, quiz, mind map, or report from completed sources. The job fills `content`. Workspace detail still returns only `{ id, title, type, status }` |
 
 The Next.js app talks to the Express API with `credentials: "include"`. Auth, workspaces, sources, passage search, and chat all go through that API.
 
@@ -59,6 +59,8 @@ All of these require the auth cookie. List and read include any workspace the us
 | `GET` | `/api/workspace/:workspaceId` | — |
 | `PUT` | `/api/workspace/:workspaceId` | `{ name? }` and/or `{ defaultModel? }` |
 | `DELETE` | `/api/workspace/:workspaceId` | — |
+| `POST` | `/api/workspace/:workspaceId/invites` | `{ email }`. Owner only. Returns `{ id, email, token, expiresAt }`. The token lasts 7 days. A live invite for that email is returned again. Already a member is `409` |
+| `POST` | `/api/workspace/invites/accept` | `{ token }`. The signed-in user's email must match the invite. Adds that user to the workspace |
 
 `defaultModel` is `gpt-4o-mini` or `gpt-4o` (`CHAT_MODELS` in `server/src/lib/ai-config.ts`). The client sends `gpt-4o-mini` when creating a workspace unless the owner picks the other model.
 
@@ -93,7 +95,27 @@ Create/import returns `201` with `{ id, title, type, status, error }`. `status` 
 
 `SourceStatus`: `PENDING` → `PROCESSING` → `COMPLETED` or `FAILED`.
 
-A web-search payload schema still exists. There is no route for it.
+### Artifacts
+
+Mounted at `/api/workspace/:workspaceId/artifact`. Same membership check as sources.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/artifact` | `{ type, title?, sourceIds? }`. Creates a `PENDING` row and sends `artifact/generate.requested`. `type` is `SUMMARY`, `TAKEAWAYS`, `FLASHCARDS`, `QUIZ`, `MINDMAP`, or `REPORT`. An empty `sourceIds` list is `400`. Omitting `sourceIds` stores every `COMPLETED` source in the workspace. Passed ids must already be `COMPLETED` in that workspace |
+| `GET` | `/artifact/:artifactId` | Full row, including `content` and `error` |
+
+`content` stays `null` until the job finishes. Shapes:
+
+| Type | `content` |
+|------|-----------|
+| `SUMMARY` | `{ summary }` |
+| `TAKEAWAYS` | `{ takeaways: string[] }` |
+| `FLASHCARDS` | `{ cards: [{ front, back }] }` |
+| `QUIZ` | `{ questions: [{ question, choices, answerIndex }] }` |
+| `MINDMAP` | `{ root: { label, children } }` with at most three levels |
+| `REPORT` | `{ title, sections: [{ heading, body }] }` |
+
+Workspace detail artifact rows stay `{ id, title, type, status }`.
 
 ### Chats
 
@@ -119,6 +141,18 @@ The message stream is `text/event-stream`. Each event is `event: <type>` and one
 
 A failure before the stream starts is the normal JSON error envelope. Dates arrive as ISO strings.
 
+### Rate limits
+
+Limits are counted in memory on this API process. A restart clears them. `429` returns `{ success: false, error: "Too many requests" }`.
+
+| Route | Limit |
+|-------|-------|
+| `POST /api/auth/register` | 5 per 15 minutes per IP |
+| `POST /api/auth/login` | 10 per 15 minutes per IP |
+| `POST /api/workspace/:workspaceId/chat/:chatId/messages` | 20 per minute per user |
+| `POST /api/workspace/:workspaceId/source/search` | 30 per minute per user |
+| `POST /api/workspace/:workspaceId/artifact` | 10 per hour per user |
+
 Workspace detail still includes chat titles (`{ id, title }`) and artifact summaries. Message bodies come from the chat detail route, not from the workspace payload.
 
 ---
@@ -138,11 +172,13 @@ Then `replaceSourceChunks` (delete existing slices + `createMany` in one transac
 
 Chunking lives in `server/src/lib/chunking.ts`. Defaults in `ai-config.ts`: `CHUNK_SIZE` 1000 characters, `CHUNK_OVERLAP` 100, `RAG_TOP_K` 6, `RAG_MIN_SCORE` 0.5. Chat keeps a short summary every `CONVERSATION_SUMMARY_INTERVAL` older turns and sends the last `RECENT_MESSAGE_WINDOW` messages with the question.
 
+`artifact/generate.requested` runs `generate-artifact`. The job marks the row `PROCESSING`, reads the stored source ids from Postgres, asks the workspace's default model for JSON, saves that JSON on `content`, and returns only `{ type }`. It then sets `COMPLETED`. The prompt keeps at most 12,000 characters from each source and 48,000 characters overall. Empty text, a missing artifact, or a permanent model error sets `FAILED` and stores `error`. A bad model response or a 5xx retries up to 3 times.
+
 ---
 
 ## Data model
 
-`server/prisma/schema.prisma` is migrated. Artifact generation is the main write path still missing from HTTP.
+`server/prisma/schema.prisma` is migrated, including `LearningArtifact.error` and `WorkspaceInvite`.
 
 ```
 User
@@ -162,10 +198,13 @@ Source
   └── chunks (index, content, metadata, embedding vector(1536))
 
 LearningArtifact
-  └── type, status, title, content, sourceIds
+  └── type, status, title, content, error, sourceIds
+
+WorkspaceInvite
+  └── email, token, expiresAt, acceptedAt
 ```
 
-`LearningArtifact` exists in Postgres. Workspace detail returns artifact summaries only. There is no artifact-write API.
+Workspace detail returns artifact summaries only. `GET /artifact/:artifactId` returns `content`.
 
 ---
 
@@ -195,16 +234,13 @@ A few choices keep this from doing extra work:
 - File uploads omit `Content-Type` so the browser can set the multipart boundary.
 - Source preview text is capped in the page, and the detail request runs only after a row is opened.
 
-Learn has no generate API, so that screen only shows artifacts the workspace payload already includes.
+The Learn screen still lists title, type, and status from the workspace payload. Generated content comes from `GET /artifact/:artifactId`.
 
 ---
 
 ## Still to build
 
-1. **Learn.** Generate summaries, takeaways, flashcards, quizzes, mind maps, and reports, then return their content. The UI can show title, type, and status.
-2. **Sharing.** Invite members. The membership relation exists; the product UI is owner-only for rename, model, and delete.
-3. **Query-time extras.** Saving a web-search result as a source, and any cross-chat memory beyond the thread summary.
-4. **Hardening.** Rate limits. Ingest errors already come back on `Source.error` and show on the source row.
+1. **Query-time extras.** Saving a web-search result as a source, and any cross-chat memory beyond the thread summary.
 
 ---
 
@@ -266,7 +302,7 @@ mosaic-research/
   client/     Next.js workspace UI
 ```
 
-Server code is layered route → service → repository. Helpers live in `server/src/lib/` (Cloudinary, Firecrawl, PDF, YouTube, chunking, embeddings, OpenAI, Inngest client). The process job is `server/src/inngest/process-source.ts`. Chat routes live in `server/src/modules/chat/`.
+Server code is layered route → service → repository. Helpers live in `server/src/lib/` (Cloudinary, Firecrawl, PDF, YouTube, chunking, embeddings, OpenAI, Inngest client). Source ingest is `server/src/inngest/process-source.ts`. Artifact generation is `server/src/inngest/generate-artifact.ts`. Chat routes live in `server/src/modules/chat/`. Artifact routes live in `server/src/modules/artifact/`.
 
 ---
 

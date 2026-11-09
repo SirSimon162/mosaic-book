@@ -146,6 +146,28 @@ export async function* streamFromSources(input: {
   }
 }
 
+export async function completeJson(input: {
+  model: string;
+  system: string;
+  user: string;
+}): Promise<string> {
+  const openai = embedClient();
+  const response = await openai.chat.completions.create({
+    model: input.model,
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: input.system },
+      { role: "user", content: input.user },
+    ],
+  });
+  const text = response.choices[0]?.message?.content?.trim();
+  if (!text) {
+    throw new Error("Chat model returned an empty response");
+  }
+  return text;
+}
+
 export async function summarizeConversation(input: {
   model: string;
   previousSummary: string | null;

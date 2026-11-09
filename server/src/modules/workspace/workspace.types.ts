@@ -29,6 +29,25 @@ export const workspaceIdParamSchema = z.object({
   workspaceId: z.uuid(),
 });
 
+export const createInviteSchema = z.object({
+  email: z.email().trim().toLowerCase(),
+});
+
+export const acceptInviteSchema = z.object({
+  token: z.string().trim().min(1).max(200),
+});
+
+export const publicInviteSchema = z.object({
+  id: z.uuid(),
+  email: z.email(),
+  token: z.string(),
+  expiresAt: z.date(),
+});
+
+export const publicAcceptedInviteSchema = z.object({
+  workspaceId: z.uuid(),
+});
+
 export const listWorkspacesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(10),
   offset: z.coerce.number().int().min(0).default(0),
@@ -92,3 +111,7 @@ export type WorkspaceIdParam = z.infer<typeof workspaceIdParamSchema>;
 export type ListWorkspacesQuery = z.infer<typeof listWorkspacesQuerySchema>;
 export type PublicWorkspaces = z.infer<typeof publicWorkspacesSchema>;
 export type PublicWorkspace = z.infer<typeof publicWorkspaceSchema>;
+export type CreateInvite = z.infer<typeof createInviteSchema>;
+export type AcceptInvite = z.infer<typeof acceptInviteSchema>;
+export type PublicInvite = z.infer<typeof publicInviteSchema>;
+export type PublicAcceptedInvite = z.infer<typeof publicAcceptedInviteSchema>;

@@ -3,23 +3,40 @@ import { sendFail, sendSuccess } from "../../lib/api-response.js";
 import { Status } from "../../lib/http-code.js";
 import { requireUserId } from "../../types/authed-request.js";
 import {
+  acceptInviteSchema,
+  createInviteSchema,
   createWorkspaceSchema,
   listWorkspacesQuerySchema,
   updateWorkspaceSchema,
   workspaceIdParamSchema,
 } from "./workspace.types.js";
 import {
+  acceptWorkspaceInvite,
   createNewWorkspace,
+  createWorkspaceInvite,
   deleteWorkspaceById,
   getAllUserWorkspaces,
   getWorkspace,
   updateWorkspaceById,
 } from "./workspace.service.js";
 import sourceRoutes from "../source/source.route.js";
-import { requireWorkspaceUserAccess } from "../../middleware/index.js";
+import {
+  requireWorkspaceOwnerAccess,
+  requireWorkspaceUserAccess,
+} from "../../middleware/index.js";
 import chatRoutes from "../chat/chat.route.js";
+import artifactRoutes from "../artifact/artifact.route.js";
 
 const workspaceRoutes: Router = express.Router();
+
+workspaceRoutes.post("/invites/accept", async (req, res) => {
+  const body = acceptInviteSchema.safeParse(req.body);
+  if (!body.success) {
+    return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+  }
+  const invite = await acceptWorkspaceInvite(requireUserId(req), body.data.token);
+  return sendSuccess(res, Status.OK, invite);
+});
 
 workspaceRoutes.post("/create", async (req, res) => {
   const input = createWorkspaceSchema.safeParse(req.body);
@@ -76,6 +93,33 @@ workspaceRoutes.use(
 );
 
 workspaceRoutes.use("/:workspaceId/chat", requireWorkspaceUserAccess, chatRoutes);
+
+workspaceRoutes.post(
+  "/:workspaceId/invites",
+  requireWorkspaceOwnerAccess,
+  async (req, res) => {
+    const params = workspaceIdParamSchema.safeParse(req.params);
+    if (!params.success) {
+      return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+    }
+    const body = createInviteSchema.safeParse(req.body);
+    if (!body.success) {
+      return sendFail(res, Status.BAD_REQUEST, "Invalid input");
+    }
+    const invite = await createWorkspaceInvite(
+      requireUserId(req),
+      params.data.workspaceId,
+      body.data.email,
+    );
+    return sendSuccess(res, Status.CREATED, invite);
+  },
+);
+
+workspaceRoutes.use(
+  "/:workspaceId/artifact",
+  requireWorkspaceUserAccess,
+  artifactRoutes,
+);
 
 workspaceRoutes.get("/:workspaceId", async (req, res) => {
   const params = workspaceIdParamSchema.safeParse(req.params);

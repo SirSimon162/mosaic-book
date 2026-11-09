@@ -11,6 +11,7 @@ import {
   streamChatReply,
   type ChatStreamEvent,
 } from "./chat.service.js";
+import { limitChatMessages } from "../../middleware/index.js";
 import {
   chatIdParamSchema,
   createChatSchema,
@@ -46,7 +47,7 @@ function writeSse(res: Response, event: ChatStreamEvent | { type: "error"; messa
   res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-chatRoutes.post("/:chatId/messages", async (req, res) => {
+chatRoutes.post("/:chatId/messages", limitChatMessages, async (req, res) => {
   const params = chatIdParamSchema.safeParse(req.params);
   if (!params.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");

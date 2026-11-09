@@ -440,3 +440,30 @@ export async function searchChunks(
     score: Number(row.score),
   }));
 }
+
+export async function listCompletedSourceIds(
+  workspaceId: string,
+  sourceIds?: string[],
+) {
+  const rows = await prisma.source.findMany({
+    where: {
+      workspaceId,
+      status: SourceStatus.COMPLETED,
+      ...(sourceIds ? { id: { in: sourceIds } } : {}),
+    },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map((row) => row.id);
+}
+
+export async function listSourceTexts(workspaceId: string, sourceIds: string[]) {
+  if (sourceIds.length === 0) {
+    return [];
+  }
+  return prisma.source.findMany({
+    where: { workspaceId, id: { in: sourceIds } },
+    select: { id: true, title: true, source: true },
+    orderBy: { createdAt: "asc" },
+  });
+}

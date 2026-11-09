@@ -6,6 +6,7 @@ import appRoutes from "./routes/index.js";
 import cookieParser from "cookie-parser";
 import { inngest } from "./lib/inngest.js";
 import { processSource } from "./inngest/process-source.js";
+import { generateArtifact } from "./inngest/generate-artifact.js";
 export const app: Express = express();
 
 const corsOptions: CorsOptions = {
@@ -19,7 +20,10 @@ app.use(express.json());
 
 app.use(cookieParser());
 
-app.use("/api/inngest", serve({ client: inngest, functions: [processSource] }));
+app.use(
+  "/api/inngest",
+  serve({ client: inngest, functions: [processSource, generateArtifact] }),
+);
 app.use("/api", appRoutes);
 
 app.use(notFound);

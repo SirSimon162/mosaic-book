@@ -4,10 +4,11 @@ import { registerUser, loginUser } from "./auth.service.js";
 import { setAuthCookie, createAccessToken, clearAuthCookie } from "../../utils/index.js";
 import { sendSuccess, sendFail } from "../../lib/api-response.js";
 import { Status } from "../../lib/http-code.js";
+import { limitLogin, limitRegister } from "../../middleware/index.js";
 
 const authRoutes: Router = express.Router();
 
-authRoutes.post("/register", async (req, res) => {
+authRoutes.post("/register", limitRegister, async (req, res) => {
   const input = registerSchema.safeParse(req.body);
   if (!input.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
@@ -22,7 +23,7 @@ authRoutes.post("/register", async (req, res) => {
   return sendSuccess(res, Status.CREATED, user);
 });
 
-authRoutes.post("/login", async (req, res) => {
+authRoutes.post("/login", limitLogin, async (req, res) => {
   const input = loginSchema.safeParse(req.body);
   if (!input.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
