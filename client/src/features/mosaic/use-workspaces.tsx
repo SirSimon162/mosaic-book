@@ -5,16 +5,20 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { isAbort } from "@/services/api";
 import { MOSAIC } from "@/services/mosaic";
 import type {
+  ArtifactDetail,
+  ArtifactType,
   ChatModel,
   CreateSourceBody,
   Workspace,
   WorkspaceChat,
   WorkspaceDetails,
+  WorkspaceInvite,
   WorkspaceSource,
   WorkspaceSummary,
 } from "@/services/mosaic";
 
 const PAGE_SIZE = 50;
+const EMPTY_ARTIFACTS: Record<string, ArtifactDetail> = {};
 
 function modelOf(value: string | undefined): ChatModel {
   return value === "gpt-4o" ? "gpt-4o" : "gpt-4o-mini";
@@ -37,10 +41,12 @@ function summaryOf(workspace: Workspace): WorkspaceSummary {
   return { id: workspace.id, name: workspace.name, ownerId: workspace.ownerId };
 }
 
-function mergeSources(local: WorkspaceSource[], remote: WorkspaceSource[]) {
-  const seen = new Set(remote.map((item) => item.id));
-  const extras = local.filter((item) => !seen.has(item.id));
-  return extras.length ? [...extras, ...remote] : remote;
+function mergeSources(local: WorkspaceSource[] | undefined, remote: WorkspaceSource[]) {
+  const current = Array.isArray(local) ? local : [];
+  const next = Array.isArray(remote) ? remote : [];
+  const seen = new Set(next.map((item) => item.id));
+  const extras = current.filter((item) => !seen.has(item.id));
+  return extras.length ? [...extras, ...next] : next;
 }
 
 function mergeChats(local: WorkspaceChat[], remote: WorkspaceChat[]) {
@@ -98,7 +104,17 @@ function loadDetails(id: string, signal?: AbortSignal) {
   if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
   const pending = detailsInflight.get(id);
   if (pending) return pending;
-  const request = MOSAIC.getWorkspace(id, signal).finally(() => {
+  const request = (async () => {
+    const full = await MOSAIC.getWorkspace(id, signal);
+    const carried = Array.isArray(full.sources) ? full.sources : [];
+    try {
+      const listed = await MOSAIC.listSources(id, undefined, signal);
+      return { ...full, sources: listed };
+    } catch (cause) {
+      if (isAbort(cause)) throw cause;
+      return { ...full, sources: carried };
+    }
+  })().finally(() => {
     if (detailsInflight.get(id) === request) detailsInflight.delete(id);
   });
   detailsInflight.set(id, request);
@@ -131,6 +147,14 @@ type WorkspaceContextValue = {
   placeChat: (chat: WorkspaceChat) => void;
   removeChat: (chatId: string) => void;
   replaceChats: (chats: WorkspaceChat[]) => void;
+  artifactDetails: Record<string, ArtifactDetail>;
+  createArtifact: (
+    type: ArtifactType,
+    input?: { title?: string; sourceIds?: string[] },
+  ) => Promise<ArtifactDetail>;
+  loadArtifact: (artifactId: string) => Promise<ArtifactDetail | null>;
+  createInvite: (email: string) => Promise<WorkspaceInvite>;
+  acceptInvite: (token: string) => Promise<string>;
   reload: () => Promise<void>;
   reopen: () => Promise<void>;
 };
@@ -143,6 +167,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [entryId, setEntryId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, WorkspaceDetails>>({});
+  const [artifactCache, setArtifactCache] = useState<Record<string, Record<string, ArtifactDetail>>>({});
+  const artifactFlights = useRef(new Map<string, Promise<ArtifactDetail | null>>());
   const [ready, setReady] = useState(false);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -161,7 +187,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     (id: string, update: (current: WorkspaceDetails) => WorkspaceDetails) => {
       const existing = detailsRef.current[id];
       if (!existing) return;
-      store(update(existing));
+      const next = update(existing);
+      if (next === existing) return;
+      store(next);
     },
     [store],
   );
@@ -246,18 +274,26 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [loadRemaining, store]);
 
   useEffect(() => {
-    if (!routeId || detailsRef.current[routeId]) return;
-    const controller = new AbortController();
+    if (!routeId) return;
     let alive = true;
-    setOpeningId(routeId);
-    setError("");
-    void loadDetails(routeId, controller.signal)
-      .then((full) => {
+    const known = detailsRef.current[routeId];
+    if (!known) {
+      setOpeningId(routeId);
+      setError("");
+    }
+    void (async () => {
+      if (!detailsRef.current[routeId]) {
+        const full = await loadDetails(routeId);
         if (!alive) return;
         store(full);
-      })
+        return;
+      }
+      const listed = await MOSAIC.listSources(routeId);
+      if (!alive) return;
+      patch(routeId, (workspace) => ({ ...workspace, sources: listed }));
+    })()
       .catch((cause: unknown) => {
-        if (!alive || isAbort(cause)) return;
+        if (!alive || isAbort(cause) || detailsRef.current[routeId]) return;
         setError(cause instanceof Error ? cause.message : "Could not open this workspace");
       })
       .finally(() => {
@@ -265,9 +301,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       });
     return () => {
       alive = false;
-      controller.abort();
     };
-  }, [routeId, store]);
+  }, [routeId, store, patch]);
 
   const reopen = useCallback(async () => {
     if (!routeId) {
@@ -474,6 +509,27 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }));
   }
 
+  async function createArtifact(
+    type: ArtifactType,
+    input?: { title?: string; sourceIds?: string[] },
+  ) {
+    const id = requireWorkspace();
+    const title = input?.title?.trim();
+    const sourceIds = [...new Set(input?.sourceIds ?? [])].slice(0, 50);
+    const detail = await MOSAIC.createArtifact(id, {
+      type,
+      ...(title ? { title: title.slice(0, 200) } : {}),
+      ...(sourceIds.length > 0 ? { sourceIds } : {}),
+    });
+    rememberArtifact(id, detail);
+    return detail;
+  }
+
+  async function createInvite(email: string) {
+    const id = requireWorkspace();
+    return MOSAIC.createInvite(id, email.trim().toLowerCase());
+  }
+
   const placeChat = useCallback(
     (chat: WorkspaceChat) => {
       if (!routeId) return;
@@ -507,9 +563,96 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [patch, routeId],
   );
 
+  const rememberArtifact = useCallback(
+    (workspaceId: string, detail: ArtifactDetail) => {
+      setArtifactCache((current) => {
+        const bucket = current[workspaceId] ?? {};
+        const previous = bucket[detail.id];
+        if (
+          previous &&
+          previous.status === detail.status &&
+          previous.updatedAt === detail.updatedAt &&
+          previous.error === detail.error
+        ) {
+          return current;
+        }
+        return { ...current, [workspaceId]: { ...bucket, [detail.id]: detail } };
+      });
+      const summary = {
+        id: detail.id,
+        title: detail.title,
+        type: detail.type,
+        status: detail.status,
+      };
+      patch(workspaceId, (workspace) => {
+        const current = workspace.artifacts.find((item) => item.id === detail.id);
+        if (current && current.status === summary.status && current.title === summary.title) {
+          return workspace;
+        }
+        const exists = workspace.artifacts.some((item) => item.id === detail.id);
+        return {
+          ...workspace,
+          artifacts: exists
+            ? workspace.artifacts.map((item) => (item.id === detail.id ? summary : item))
+            : [summary, ...workspace.artifacts],
+        };
+      });
+    },
+    [patch],
+  );
+
+  const loadArtifact = useCallback(
+    (artifactId: string) => {
+      if (!routeId) return Promise.resolve(null);
+      const workspaceId = routeId;
+      const key = `${workspaceId}:${artifactId}`;
+      const existing = artifactFlights.current.get(key);
+      if (existing) return existing;
+      const job = MOSAIC.getArtifact(workspaceId, artifactId)
+        .then((detail) => {
+          rememberArtifact(workspaceId, detail);
+          return detail;
+        })
+        .finally(() => {
+          if (artifactFlights.current.get(key) === job) artifactFlights.current.delete(key);
+        });
+      artifactFlights.current.set(key, job);
+      return job;
+    },
+    [rememberArtifact, routeId],
+  );
+
+  const acceptInvite = useCallback(
+    async (token: string) => {
+      const accepted = await MOSAIC.acceptInvite(token.trim());
+      const generation = ++restToken.current;
+      const [full, page] = await Promise.all([
+        MOSAIC.getWorkspace(accepted.workspaceId),
+        MOSAIC.listWorkspaces({ limit: PAGE_SIZE, offset: 0 }),
+      ]);
+      if (generation !== restToken.current) return full.id;
+      store(full);
+      const summary = { id: full.id, name: full.name, ownerId: full.ownerId };
+      setWorkspaces(
+        page.workspaces.some((item) => item.id === full.id)
+          ? page.workspaces
+          : [summary, ...page.workspaces],
+      );
+      setEntryId((current) => current ?? full.id);
+      setReady(true);
+      if (page.hasMore) void loadRemaining(page.offset + page.workspaces.length, generation);
+      return full.id;
+    },
+    [loadRemaining, store],
+  );
+
   const active = routeId ? (details[routeId] ?? null) : null;
+  const artifactDetails = (routeId && artifactCache[routeId]) || EMPTY_ARTIFACTS;
   const ingesting =
     active?.sources.some((source) => source.status === "PENDING" || source.status === "PROCESSING") ??
+    false;
+  const generating =
+    active?.artifacts.some((item) => item.status === "PENDING" || item.status === "PROCESSING") ??
     false;
 
   useEffect(() => {
@@ -546,6 +689,33 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     };
   }, [ingesting, patch, routeId]);
 
+  useEffect(() => {
+    if (!routeId || !generating) return;
+    let stopped = false;
+    let timer = 0;
+    const tick = () => {
+      timer = window.setTimeout(() => {
+        if (stopped) return;
+        if (document.hidden) {
+          tick();
+          return;
+        }
+        const pending = (detailsRef.current[routeId]?.artifacts ?? []).filter(
+          (item) => item.status === "PENDING" || item.status === "PROCESSING",
+        );
+        if (pending.length === 0) return;
+        void Promise.all(pending.map((item) => loadArtifact(item.id).catch(() => null))).finally(() => {
+          if (!stopped) tick();
+        });
+      }, 4000);
+    };
+    tick();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [generating, loadArtifact, routeId]);
+
   return (
     <WorkspaceContext.Provider
       value={{
@@ -574,6 +744,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         placeChat,
         removeChat,
         replaceChats,
+        artifactDetails,
+        createArtifact,
+        loadArtifact,
+        createInvite,
+        acceptInvite,
         reload,
         reopen,
       }}

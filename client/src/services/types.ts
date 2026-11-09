@@ -81,6 +81,27 @@ export type WorkspaceArtifact = {
   status: ArtifactStatus;
 };
 
+export type ArtifactDetail = WorkspaceArtifact & {
+  error: string | null;
+  sourceIds: string[];
+  content: unknown;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateArtifactBody = {
+  type: ArtifactType;
+  title?: string;
+  sourceIds?: string[];
+};
+
+export type WorkspaceInvite = {
+  id: string;
+  email: string;
+  token: string;
+  expiresAt: string;
+};
+
 export type WorkspaceDetails = Workspace & {
   chats: WorkspaceChat[];
   sources: WorkspaceSource[];

@@ -1,20 +1,28 @@
 "use client";
 
-import { BookOpen, Check, ChevronDown, MessageSquare, PanelLeft, Plus, Upload } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useSession } from "@/features/auth/session";
-import { ThemeIcon } from "@/features/shell/navbar/theme-switch";
-import { CHAT_MODELS, type ChatModel, type WorkspaceChat, type WorkspaceSummary } from "@/services/mosaic";
+import {
+  CHAT_MODELS,
+  type ChatModel,
+  type WorkspaceChat,
+  type WorkspaceInvite,
+  type WorkspaceSummary,
+} from "@/services/mosaic";
 import { Brand } from "@/shared/branding/brand";
-import { Mark } from "@/shared/branding/mark";
 import type { Mode } from "./data";
+import { Icon, type MosaicIconName } from "./icons";
+import { MosaicTheme } from "./theme";
 
-const modes: { id: Mode; label: string; icon: typeof Upload }[] = [
-  { id: "upload", label: "Upload", icon: Upload },
-  { id: "chat", label: "Chat", icon: MessageSquare },
-  { id: "learn", label: "Learn", icon: BookOpen },
+const modes: { id: Mode; label: string; icon: MosaicIconName }[] = [
+  { id: "upload", label: "Upload", icon: "upload" },
+  { id: "chat", label: "Chat", icon: "chat" },
+  { id: "learn", label: "Learn", icon: "bookmark" },
 ];
+
+const SPRING = { type: "spring" as const, stiffness: 280, damping: 30, mass: 0.85 };
 
 export function Sidebar({
   mode,
@@ -28,6 +36,7 @@ export function Sidebar({
   saving,
   removing,
   canManage,
+  members,
   error,
   onMode,
   onChat,
@@ -37,6 +46,10 @@ export function Sidebar({
   onRename,
   onDelete,
   onModel,
+  onInvite,
+  onJoin,
+  menuOpen,
+  onMenu,
 }: {
   mode: Mode;
   chatId: string | null;
@@ -49,6 +62,7 @@ export function Sidebar({
   saving: boolean;
   removing: boolean;
   canManage: boolean;
+  members: { email: string }[];
   error: string;
   onMode: (mode: Mode) => void;
   onChat: (id: string) => void;
@@ -58,23 +72,146 @@ export function Sidebar({
   onRename: (name: string) => Promise<void>;
   onDelete: () => Promise<void>;
   onModel: (model: ChatModel) => Promise<void>;
+  onInvite: (email: string) => Promise<WorkspaceInvite>;
+  onJoin: (token: string) => Promise<void>;
+  menuOpen: boolean;
+  onMenu: (open: boolean) => void;
 }) {
-  const { leaving, logout } = useSession();
-  const [expanded, setExpanded] = useState(false);
-  const [leaveError, setLeaveError] = useState("");
+  const reduce = useReducedMotion();
+  const [squeezed, setSqueezed] = useState(false);
+  const motionTransition = reduce ? { duration: 0.01 } : SPRING;
+  const shared = {
+    mode,
+    chatId,
+    workspaces,
+    activeId,
+    name,
+    chats,
+    model,
+    creating,
+    saving,
+    removing,
+    canManage,
+    members,
+    error,
+    onMode,
+    onChat,
+    onNewChat,
+    onWorkspace,
+    onCreate,
+    onRename,
+    onDelete,
+    onModel,
+    onInvite,
+    onJoin,
+  };
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!menuOpen) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setExpanded(false);
+      if (event.key === "Escape") onMenu(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [expanded]);
+  }, [menuOpen, onMenu]);
 
-  function collapse() {
-    setExpanded(false);
-  }
+  return (
+    <>
+      {menuOpen && (
+        <button type="button" aria-label="Close sidebar" onClick={() => onMenu(false)} className="m-scrim fixed inset-0 z-30 md:hidden" />
+      )}
+
+      <aside
+        className={`m-sidebar fixed inset-y-0 left-0 z-40 flex h-full min-h-0 w-[min(272px,100vw)] flex-col overflow-hidden transition-transform duration-200 ease-out md:hidden ${
+          menuOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"
+        }`}
+      >
+        <SidebarBody
+          {...shared}
+          compact={false}
+          toggleLabel="Close sidebar"
+          onToggle={() => onMenu(false)}
+          onNavigate={() => onMenu(false)}
+        />
+      </aside>
+
+      <motion.aside
+        initial={false}
+        animate={{ width: squeezed ? 76 : 272 }}
+        transition={motionTransition}
+        className="m-sidebar hidden h-full min-h-0 shrink-0 flex-col overflow-hidden md:flex"
+      >
+        <SidebarBody
+          {...shared}
+          compact={squeezed}
+          toggleLabel={squeezed ? "Expand sidebar" : "Squeeze sidebar"}
+          onToggle={() => setSqueezed((value) => !value)}
+          onNavigate={() => undefined}
+        />
+      </motion.aside>
+    </>
+  );
+}
+
+function SidebarBody({
+  mode,
+  chatId,
+  workspaces,
+  activeId,
+  name,
+  chats,
+  model,
+  creating,
+  saving,
+  removing,
+  canManage,
+  members,
+  error,
+  onMode,
+  onChat,
+  onNewChat,
+  onWorkspace,
+  onCreate,
+  onRename,
+  onDelete,
+  onModel,
+  onInvite,
+  onJoin,
+  compact,
+  toggleLabel,
+  onToggle,
+  onNavigate,
+}: {
+  mode: Mode;
+  chatId: string | null;
+  workspaces: WorkspaceSummary[];
+  activeId: string | null;
+  name: string;
+  model: ChatModel;
+  chats: WorkspaceChat[];
+  creating: boolean;
+  saving: boolean;
+  removing: boolean;
+  canManage: boolean;
+  members: { email: string }[];
+  error: string;
+  onMode: (mode: Mode) => void;
+  onChat: (id: string) => void;
+  onNewChat: () => void;
+  onWorkspace: (id: string) => void;
+  onCreate: (name: string) => Promise<void>;
+  onRename: (name: string) => Promise<void>;
+  onDelete: () => Promise<void>;
+  onModel: (model: ChatModel) => Promise<void>;
+  onInvite: (email: string) => Promise<WorkspaceInvite>;
+  onJoin: (token: string) => Promise<void>;
+  compact: boolean;
+  toggleLabel: string;
+  onToggle: () => void;
+  onNavigate: () => void;
+}) {
+  const { leaving, logout } = useSession();
+  const [leaveError, setLeaveError] = useState("");
 
   async function leave() {
     setLeaveError("");
@@ -87,171 +224,113 @@ export function Sidebar({
 
   return (
     <>
-      <nav
-        aria-label="Workspace"
-        className="flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-primary bg-secondary py-3 md:hidden"
-      >
-        <button
-          type="button"
-          aria-label="Open sidebar"
-          onClick={() => setExpanded(true)}
-          className="grid size-10 place-items-center rounded-lg text-primary hover:bg-primary"
-        >
-          <PanelLeft className="size-5" />
-        </button>
-        <Link href="/" aria-label="Home" className="grid size-10 place-items-center">
-          <Mark className="size-5" />
-        </Link>
-        {modes.map((item) => {
-          const Icon = item.icon;
-          const selected = mode === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              aria-label={item.label}
-              onClick={() => onMode(item.id)}
-              className={`grid size-10 place-items-center rounded-lg ${
-                selected ? "bg-tertiary text-primary" : "text-secondary hover:bg-primary hover:text-primary"
-              }`}
-            >
-              <Icon className={`size-4 ${selected ? "text-accent" : ""}`} strokeWidth={1.75} />
-            </button>
-          );
-        })}
-        <div className="mt-auto">
-          <ThemeIcon />
-        </div>
-      </nav>
-
-      {expanded && (
-        <button
-          type="button"
-          aria-label="Close sidebar"
-          onClick={collapse}
-          className="fixed inset-0 z-30 bg-[var(--bg-inverse)]/40 md:hidden"
-        />
-      )}
-
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[min(18rem,calc(100vw-3.5rem))] flex-col border-r border-primary bg-secondary transition-transform md:static md:z-auto md:h-full md:w-[280px] md:translate-x-0 ${
-          expanded ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-      <div className="px-4 pt-5 pb-3">
-        <div className="flex items-center justify-between gap-2">
-          <Link href="/" className="inline-flex">
-            <Brand className="h-6" />
-          </Link>
-          <button
-            type="button"
-            aria-label="Close sidebar"
-            onClick={collapse}
-            className="grid size-9 place-items-center rounded-lg text-secondary hover:bg-primary hover:text-primary md:hidden"
-          >
-            <PanelLeft className="size-5" />
+      <div className="shrink-0 px-3 pt-4 pb-2">
+        <div className={`flex items-center gap-2 ${compact ? "justify-center" : "justify-between"}`}>
+          {!compact && (
+            <Link href="/" className="inline-flex min-w-0">
+              <Brand className="h-6" />
+            </Link>
+          )}
+          <button type="button" aria-label={toggleLabel} onClick={onToggle} className="m-icon-btn">
+            <Icon name="sidebar" size={18} />
           </button>
         </div>
-        <WorkspaceSwitch
-          workspaces={workspaces}
-          activeId={activeId}
-          name={name}
-          model={model}
-          creating={creating}
-          saving={saving}
-          removing={removing}
-          canManage={canManage}
-          error={error}
-          onWorkspace={(id) => {
-            onWorkspace(id);
-            collapse();
-          }}
-          onCreate={onCreate}
-          onRename={onRename}
-          onDelete={onDelete}
-          onModel={onModel}
-        />
+        {!compact && (
+          <WorkspaceSwitch
+            workspaces={workspaces}
+            activeId={activeId}
+            name={name}
+            model={model}
+            creating={creating}
+            saving={saving}
+            removing={removing}
+            canManage={canManage}
+            members={members}
+            error={error}
+            onInvite={onInvite}
+            onJoin={onJoin}
+            onWorkspace={(id) => {
+              onWorkspace(id);
+              onNavigate();
+            }}
+            onCreate={onCreate}
+            onRename={onRename}
+            onDelete={onDelete}
+            onModel={onModel}
+          />
+        )}
       </div>
 
-      <div className="grid grid-cols-3 gap-1 px-3 md:grid-cols-1">
-        {modes.map((item) => {
-          const Icon = item.icon;
-          const selected = mode === item.id;
+      <div className="mt-3 grid shrink-0 grid-cols-1 gap-1 px-2">
+        {modes.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-label={item.label}
+            data-selected={mode === item.id}
+            onClick={() => {
+              onMode(item.id);
+              onNavigate();
+            }}
+            className={
+              compact
+                ? "m-icon-btn m-item mx-auto"
+                : "m-item grid h-10 grid-cols-[20px_minmax(0,1fr)] items-center gap-2.5 px-2.5 text-left text-sm"
+            }
+          >
+            <Icon name={item.icon} />
+            {!compact && <span className="truncate">{item.label}</span>}
+          </button>
+        ))}
+      </div>
 
-          return (
+      {!compact && (
+        <div className="mt-4 flex min-h-0 flex-1 basis-0 flex-col overflow-hidden px-2">
+          <div className="mb-2 flex shrink-0 items-center justify-between px-2">
+            <p className="m-kicker">RECENT</p>
             <button
-              key={item.id}
               type="button"
               onClick={() => {
-                onMode(item.id);
-                collapse();
+                onNewChat();
+                onNavigate();
               }}
-              className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm md:justify-start ${
-                selected ? "bg-tertiary text-primary" : "text-secondary hover:bg-primary hover:text-primary"
-              }`}
+              className="m-btn-ghost"
             >
-              <Icon className={`size-4 ${selected ? "text-accent" : ""}`} strokeWidth={1.75} />
-              {item.label}
+              <Icon name="plus" size={14} />
+              New
             </button>
-          );
-        })}
-      </div>
-
-      <div className="mt-4 flex min-h-0 flex-1 flex-col px-3 pb-3">
-        <div className="mb-2 flex items-center justify-between px-2">
-          <p className="font-tertiary text-[10px] tracking-[0.16em] text-secondary">RECENT</p>
-          <button
-            type="button"
-            onClick={() => {
-              onNewChat();
-              collapse();
-            }}
-            className="rounded-lg px-2 py-1 text-sm text-secondary hover:text-primary"
-          >
-            New
-          </button>
-        </div>
-        <ul className="mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto">
-          {chats.length === 0 && (
-            <li className="px-2 py-2 text-sm text-secondary">No chats yet.</li>
-          )}
-          {chats.map((thread) => {
-            const selected = mode === "chat" && chatId === thread.id;
-
-            return (
-              <li key={thread.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChat(thread.id);
-                    collapse();
-                  }}
-                  className={`w-full rounded-lg px-2 py-2 text-left ${
-                    selected ? "bg-tertiary" : "hover:bg-primary"
-                  }`}
-                >
-                  <span className="block truncate text-sm text-primary">{thread.title}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-        <div className="mt-2 border-t border-primary pt-2">
-          {leaveError && <p className="px-2 pb-2 text-xs text-secondary">{leaveError}</p>}
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => void leave()}
-              disabled={leaving}
-              className="rounded-lg px-2 py-2 text-sm text-secondary hover:text-primary disabled:opacity-60"
-            >
-              {leaving ? "Signing out" : "Log out"}
-            </button>
-            <ThemeIcon />
           </div>
+          <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain">
+            {chats.length === 0 && <li className="m-muted px-2 py-2 text-sm">No chats yet.</li>}
+            {chats.map((thread) => {
+              const selected = mode === "chat" && chatId === thread.id;
+              return (
+                <li key={thread.id}>
+                  <button
+                    type="button"
+                    data-selected={selected}
+                    onClick={() => {
+                      onChat(thread.id);
+                      onNavigate();
+                    }}
+                    className="m-item w-full px-2.5 py-2 text-left"
+                  >
+                    <span className="block truncate text-sm">{thread.title}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
+      )}
+      {leaveError && !compact && <p className="m-muted shrink-0 px-4 pt-2 text-xs">{leaveError}</p>}
+      <div className={`m-dock mt-auto px-2 ${compact ? "flex-col justify-center gap-0" : "justify-between"}`}>
+        <button type="button" onClick={() => void leave()} disabled={leaving} aria-label="Log out" className={compact ? "m-icon-btn" : "m-btn-ghost"}>
+          <Icon name="logout" size={16} />
+          {!compact && (leaving ? "Signing out" : "Log out")}
+        </button>
+        <MosaicTheme />
       </div>
-    </aside>
     </>
   );
 }
@@ -265,7 +344,11 @@ function WorkspaceSwitch({
   saving,
   removing,
   canManage,
+  members,
   error,
+  compact = false,
+  onInvite,
+  onJoin,
   onWorkspace,
   onCreate,
   onRename,
@@ -280,7 +363,11 @@ function WorkspaceSwitch({
   saving: boolean;
   removing: boolean;
   canManage: boolean;
+  members: { email: string }[];
   error: string;
+  compact?: boolean;
+  onInvite: (email: string) => Promise<WorkspaceInvite>;
+  onJoin: (token: string) => Promise<void>;
   onWorkspace: (id: string) => void;
   onCreate: (name: string) => Promise<void>;
   onRename: (name: string) => Promise<void>;
@@ -291,6 +378,10 @@ function WorkspaceSwitch({
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [naming, setNaming] = useState<null | "create" | "rename">(null);
+  const [sharing, setSharing] = useState<null | "invite" | "join">(null);
+  const [invite, setInvite] = useState<WorkspaceInvite | null>(null);
+  const [inviteLink, setInviteLink] = useState("");
+  const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState("");
@@ -299,6 +390,10 @@ function WorkspaceSwitch({
   const dismiss = useCallback(() => {
     setOpen(false);
     setNaming(null);
+    setSharing(null);
+    setInvite(null);
+    setInviteLink("");
+    setCopied(false);
     setConfirming(false);
     setDraft("");
     setNotice("");
@@ -345,6 +440,51 @@ function WorkspaceSwitch({
     }
   }
 
+  async function sendInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const email = draft.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setNotice("Enter a valid email");
+      return;
+    }
+    try {
+      const created = await onInvite(email);
+      setInvite(created);
+      setInviteLink(`${window.location.origin}/mosaic?invite=${encodeURIComponent(created.token)}`);
+      setCopied(false);
+      setNotice("");
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Could not create the invite");
+    }
+  }
+
+  async function join(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const token = draft.trim();
+    if (!token || token.length > 200) {
+      setNotice("Paste the invite token");
+      return;
+    }
+    try {
+      await onJoin(token);
+      dismiss();
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Could not join this workspace");
+    }
+  }
+
+  async function copyLink() {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopied(true);
+      setNotice("");
+    } catch {
+      setCopied(false);
+      setNotice("Select the link and copy it");
+    }
+  }
+
   async function changeModel(next: ChatModel) {
     setNotice("");
     try {
@@ -355,25 +495,30 @@ function WorkspaceSwitch({
   }
 
   return (
-    <div ref={rootRef} className="relative mt-5">
-      <p className="font-tertiary text-[10px] tracking-[0.16em] text-secondary">WORKSPACE</p>
+    <div ref={rootRef} className={`relative ${compact ? "mt-3" : "mt-4"}`}>
+      {!compact && <p className="m-kicker px-1">WORKSPACE</p>}
       <button
         type="button"
         aria-expanded={open}
         aria-controls={menuId}
+        aria-label={name || "Workspace"}
         disabled={removing}
         onClick={() => setOpen((value) => !value)}
-        className="mt-1 flex w-full items-center justify-between gap-2 rounded-lg py-1 text-left hover:bg-primary disabled:hover:bg-transparent"
+        className={
+          compact
+            ? "m-icon-btn mx-auto mt-1"
+            : "m-item mt-1 flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left"
+        }
       >
-        <span className="truncate font-secondary text-2xl tracking-tight text-primary">
-          {name || "Workspace"}
-        </span>
-        <ChevronDown className={`size-4 shrink-0 text-secondary ${open ? "rotate-180" : ""}`} />
+        {!compact && <span className="truncate text-lg tracking-tight">{name || "Workspace"}</span>}
+        <Icon name="chevron" size={compact ? 18 : 22} className={open ? "rotate-180" : ""} />
       </button>
       {open && (
         <div
           id={menuId}
-          className="absolute top-full right-0 left-0 z-20 mt-1 max-h-[min(24rem,70vh)] overflow-y-auto rounded-xl border border-primary bg-secondary p-1 shadow-menu"
+          className={`m-menu absolute z-30 max-h-[min(24rem,70vh)] overflow-y-auto p-1.5 ${
+            compact ? "top-0 left-full ml-2 w-72" : "top-full right-0 left-0 mt-1"
+          }`}
         >
           <ul className="max-h-48 overflow-y-auto">
             {workspaces.map((workspace) => {
@@ -386,19 +531,81 @@ function WorkspaceSwitch({
                       onWorkspace(workspace.id);
                       dismiss();
                     }}
-                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ${
-                      selected ? "bg-tertiary text-primary" : "text-secondary hover:bg-primary hover:text-primary"
-                    }`}
+                    data-selected={selected}
+                    className="m-item flex w-full items-center gap-2 px-2 py-2 text-left text-sm"
                   >
-                    <Check className={`size-3.5 shrink-0 ${selected ? "text-accent" : "opacity-0"}`} />
+                    <Icon name="check" size={14} className={selected ? "" : "opacity-0"} />
                     <span className="truncate">{workspace.name}</span>
                   </button>
                 </li>
               );
             })}
           </ul>
-          <div className="my-1 border-t border-primary" />
-          {naming ? (
+          <div className="m-split my-1" />
+          {members.length > 0 && (
+            <p className="m-muted line-clamp-2 px-2 py-1 text-xs">
+              {members.map((member) => member.email).join(", ")}
+            </p>
+          )}
+          {sharing === "invite" ? (
+            <form onSubmit={(event) => void sendInvite(event)} className="p-1">
+              {invite ? (
+                <>
+                  <p className="m-muted px-1 text-xs leading-relaxed">
+                    For {invite.email}. Expires {new Date(invite.expiresAt).toLocaleString()}.
+                  </p>
+                  <input readOnly value={inviteLink} className="m-field mt-2" onFocus={(event) => event.currentTarget.select()} />
+                  <button type="button" onClick={() => void copyLink()} className="m-btn mt-2 w-full">
+                    {copied ? "Copied" : "Copy invite link"}
+                  </button>
+                </>
+              ) : (
+                <input
+                  autoFocus
+                  type="email"
+                  value={draft}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    setNotice("");
+                  }}
+                  placeholder="Email address"
+                  className="m-field"
+                />
+              )}
+              {notice && <p className="mt-1 px-1 m-muted text-xs break-all">{notice}</p>}
+              {!invite && (
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="m-btn mt-2 w-full"
+                >
+                  Create invite
+                </button>
+              )}
+            </form>
+          ) : sharing === "join" ? (
+            <form onSubmit={(event) => void join(event)} className="p-1">
+              <input
+                autoFocus
+                value={draft}
+                maxLength={200}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setNotice("");
+                }}
+                placeholder="Invite token"
+                className="m-field"
+              />
+              {notice && <p className="mt-1 px-1 m-muted text-xs">{notice}</p>}
+              <button
+                type="submit"
+                disabled={busy}
+                className="m-btn mt-2 w-full"
+              >
+                Join
+              </button>
+            </form>
+          ) : naming ? (
             <form onSubmit={(event) => void submit(event)} className="p-1">
               <input
                 autoFocus
@@ -409,13 +616,13 @@ function WorkspaceSwitch({
                   setNotice("");
                 }}
                 placeholder="Workspace name"
-                className="w-full rounded-lg border border-primary bg-primary px-2 py-2 text-sm text-primary outline-none focus:border-accent"
+                className="m-field"
               />
-              {notice && <p className="mt-1 px-1 text-xs text-secondary">{notice}</p>}
+              {notice && <p className="mt-1 px-1 m-muted text-xs">{notice}</p>}
               <button
                 type="submit"
                 disabled={busy}
-                className="mt-2 w-full rounded-lg bg-accent px-2 py-2 text-sm text-on-accent disabled:opacity-60"
+                className="m-btn mt-2 w-full"
               >
                 {busy ? "Saving" : naming === "rename" ? "Save" : "Create"}
               </button>
@@ -430,10 +637,27 @@ function WorkspaceSwitch({
                   setNotice("");
                   setConfirming(false);
                 }}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-primary hover:bg-primary"
+                className="m-item flex w-full items-center gap-2 px-2 py-2 text-left text-sm"
               >
-                <Plus className="size-3.5 text-accent" />
+                <Icon name="plus" size={14} />
                 New workspace
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSharing("join");
+                  setNaming(null);
+                  setInvite(null);
+                  setInviteLink("");
+                  setCopied(false);
+                  setDraft("");
+                  setNotice("");
+                  setConfirming(false);
+                }}
+                className="m-item flex w-full items-center gap-2 px-2 py-2 text-left text-sm"
+              >
+                <Icon name="userPlus" size={14} />
+                Join with a token
               </button>
               {canManage && (
                 <>
@@ -445,17 +669,35 @@ function WorkspaceSwitch({
                       setNotice("");
                       setConfirming(false);
                     }}
-                    className="flex w-full items-center rounded-lg px-2 py-2 text-left text-sm text-primary hover:bg-primary"
+                    className="m-item flex w-full items-center gap-2 px-2 py-2 text-left text-sm"
                   >
+                    <Icon name="pencil" size={14} />
                     Rename
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSharing("invite");
+                      setNaming(null);
+                      setInvite(null);
+                      setInviteLink("");
+                      setCopied(false);
+                      setDraft("");
+                      setNotice("");
+                      setConfirming(false);
+                    }}
+                    className="m-item flex w-full items-center gap-2 px-2 py-2 text-left text-sm"
+                  >
+                    <Icon name="envelope" size={14} />
+                    Invite
+                  </button>
                   <label className="block px-2 py-2">
-                    <span className="font-tertiary text-[10px] tracking-[0.16em] text-secondary">MODEL</span>
+                    <span className="m-kicker">MODEL</span>
                     <select
                       value={model}
                       disabled={busy}
                       onChange={(event) => void changeModel(event.target.value as ChatModel)}
-                      className="mt-1 w-full rounded-lg border border-primary bg-primary px-2 py-2 text-sm text-primary outline-none focus:border-accent disabled:opacity-60"
+                      className="m-field mt-1"
                     >
                       {CHAT_MODELS.map((item) => (
                         <option key={item} value={item}>
@@ -471,16 +713,17 @@ function WorkspaceSwitch({
                       else setConfirming(true);
                     }}
                     disabled={busy}
-                    className="flex w-full items-center rounded-lg px-2 py-2 text-left text-sm text-primary hover:bg-primary disabled:opacity-60"
+                    className="m-item flex w-full items-center gap-2 px-2 py-2 text-left text-sm"
                   >
+                    <Icon name="trash" size={14} />
                     {removing ? "Deleting" : confirming ? "Confirm delete" : "Delete workspace"}
                   </button>
                 </>
               )}
             </>
           )}
-          {notice && !naming && <p className="px-2 py-1 text-xs text-secondary">{notice}</p>}
-          {error && !naming && <p className="px-2 py-1 text-xs text-secondary">{error}</p>}
+          {notice && !naming && !sharing && <p className="m-muted px-2 py-1 text-xs break-all">{notice}</p>}
+          {error && !naming && <p className="m-muted px-2 py-1 text-xs">{error}</p>}
         </div>
       )}
     </div>

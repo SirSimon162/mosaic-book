@@ -7,10 +7,11 @@ import cookieParser from "cookie-parser";
 import { inngest } from "./lib/inngest.js";
 import { processSource } from "./inngest/process-source.js";
 import { generateArtifact } from "./inngest/generate-artifact.js";
+import { environment } from "./config/index.js";
 export const app: Express = express();
 
 const corsOptions: CorsOptions = {
-  origin: "http://localhost:3000",
+  origin: environment.CLIENT_ORIGIN,
   credentials: true,
 };
 

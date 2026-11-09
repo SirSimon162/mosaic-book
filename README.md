@@ -1,254 +1,200 @@
 # Mosaic Research
 
-A private study workspace. Sign in, open a workspace, add sources, and ask questions that are answered from those sources. Each workspace belongs to its owner and can include other members.
+A private study workspace. The browser talks only to an Express API. Postgres holds the documents, the chunks, and the vectors. Inngest runs the slow work after the HTTP response has already returned.
 
-Ingest, embeddings, and chat are in place. PDFs, websites, YouTube, and typed notes are stored, processed in the background, chunked, embedded, and marked `COMPLETED` or `FAILED`. A chat reply searches those chunks and streams an answer with citations. Generated study artifacts are still ahead.
+This document is the architecture: what the pieces are, why they are split this way, and which tradeoffs are still open.
 
----
+```mermaid
+flowchart LR
+  browser[Next.js client]
+  api[Express API]
+  db[(Postgres + pgvector)]
+  inngest[Inngest]
+  openai[OpenAI]
+  files[Cloudinary]
+  scrape[Firecrawl]
 
-## What works today
-
-| Surface | Behavior |
-|---------|----------|
-| Account | Register, log in, log out, and restore the session from the auth cookie |
-| Workspaces | List, open, create, rename, delete, set the default model (`gpt-4o-mini` or `gpt-4o`), and invite a member |
-| Sources | Add a PDF, import a website or YouTube URL, save text or Markdown, search titles, find a passage, preview, refresh, reprocess, and delete |
-| Ingest | After create/import, a row is `PENDING`. Inngest extracts or scrapes, chunks, embeds, then sets `COMPLETED` or `FAILED`. The open workspace refreshes that status while any row is still in progress |
-| Chat | Create a thread, load its messages, stream a reply with citations, and delete the thread |
-| Learn | Create a summary, takeaways, flashcards, quiz, mind map, or report from completed sources. The job fills `content`. Workspace detail still returns only `{ id, title, type, status }` |
-
-The Next.js app talks to the Express API with `credentials: "include"`. Auth, workspaces, sources, passage search, and chat all go through that API.
-
-Opening Mosaic loads the first page of workspaces (50) and, when the account has more, the rest in the background. An account with no workspace gets one named **My Mosaic**. The app then opens the most recently updated workspace.
-
----
-
-## API
-
-Envelope: `{ success: true, result }` or `{ success: false, error }`.
-
-Authenticated routes read the `token` cookie (`httpOnly`, `sameSite: "lax"`, `secure` in production). CORS allows `http://localhost:3000` with credentials.
-
-### Public
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/api/health` | Liveness (`"HEALTH: OK"`) |
-| `POST` | `/api/auth/register` | Create a user and set the cookie |
-| `POST` | `/api/auth/login` | Check the password and set the cookie |
-| `POST` | `/api/auth/logout` | Clear the cookie |
-
-Register and login body: `email`, `password` (minimum 8). Register may also send `firstName` and `lastName`.
-
-Inngest calls `POST /api/inngest` (not behind `requireAuth`). That path is for the Inngest Dev Server / cloud, not for the browser.
-
-### Signed in
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/api/user/me` | Current profile. `401` when the cookie is missing or expired |
-
-### Workspaces
-
-All of these require the auth cookie. List and read include any workspace the user belongs to. Rename, model changes, and delete succeed for the owner.
-
-| Method | Path | Body / query |
-|--------|------|----------------|
-| `POST` | `/api/workspace/create` | `{ name, defaultModel }` |
-| `GET` | `/api/workspace` | `limit` (1–50, default 10), `offset` (default 0) |
-| `GET` | `/api/workspace/:workspaceId` | — |
-| `PUT` | `/api/workspace/:workspaceId` | `{ name? }` and/or `{ defaultModel? }` |
-| `DELETE` | `/api/workspace/:workspaceId` | — |
-| `POST` | `/api/workspace/:workspaceId/invites` | `{ email }`. Owner only. Returns `{ id, email, token, expiresAt }`. The token lasts 7 days. A live invite for that email is returned again. Already a member is `409` |
-| `POST` | `/api/workspace/invites/accept` | `{ token }`. The signed-in user's email must match the invite. Adds that user to the workspace |
-
-`defaultModel` is `gpt-4o-mini` or `gpt-4o` (`CHAT_MODELS` in `server/src/lib/ai-config.ts`). The client sends `gpt-4o-mini` when creating a workspace unless the owner picks the other model.
-
-List result:
-
-```json
-{ "workspaces": [{ "id": "", "name": "", "ownerId": "" }], "limit": 50, "offset": 0, "hasMore": false }
+  browser -->|cookie, JSON or SSE| api
+  api --> db
+  api -->|source/process.requested| inngest
+  api -->|artifact/generate.requested| inngest
+  inngest -->|POST /api/inngest| api
+  api --> openai
+  api --> files
+  api --> scrape
 ```
 
-Workspace detail includes `defaultModel`, `users`, `sources`, `chats`, and `artifacts`. Chat rows are `{ id, title }`. Artifact rows are `{ id, title, type, status }` and do not include generated content.
+## Process boundary
 
-### Sources
+Three processes run locally. The API (`server/`, `tsx watch`) owns HTTP, Prisma, and the Inngest functions. The Inngest dev server queues events and calls back into `POST /api/inngest`. The Next.js app is a client of the API. It never opens Postgres.
 
-Mounted at `/api/workspace/:workspaceId/source`. The caller must be a member of the workspace (the owner is added as a member on create). Invalid membership is `404`.
+That split is the main scaling decision. Uploading a PDF, scraping a page, embedding chunks, and writing a study summary are too slow to hold inside the request that created the row. The request inserts a `PENDING` row, sends one event, and returns. The browser learns progress by reading `status` later.
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/source` | List. Optional `q` (title contains), `type`, `status` |
-| `POST` | `/source` | Create `TEXT` or `MARKDOWN`: `{ type, title, content }`. Enqueued for chunking |
-| `POST` | `/source/import/website` | `{ url, title }`. Saves `PENDING` + URL; Firecrawl runs in the job |
-| `POST` | `/source/import/youtube` | `{ url, title }`. Saves `PENDING` + watch URL; transcript runs in the job |
-| `POST` | `/source/import/pdf` | Multipart field `file` plus `title`. PDF only, up to 50 MB, stored on Cloudinary as `raw` |
-| `POST` | `/source/reprocess` | `{ sourceIds }` (1–10). Resets found rows to `PENDING` and enqueues again. Unknown ids are ignored. The client chunks larger selections |
-| `POST` | `/source/search` | `{ query, sourceIds? }`. Embeds the query and returns the top passage hits (`chunkId`, `sourceId`, `sourceTitle`, `index`, `page`, `snippet`, `score`) |
-| `GET` | `/source/:sourceId` | Detail: `source`, `url`, `fileUrl`, `metadata`, `error` |
-| `DELETE` | `/source/:sourceId` | Delete the row and, when present, the Cloudinary file |
-| `POST` | `/source/bulk-delete` | `{ sourceIds }` with 1–10 ids. The client chunks larger selections |
+`/api/inngest` is unauthenticated on purpose. In production the Inngest SDK checks `INNGEST_SIGNING_KEY` on those calls. Locally `isDev` is true whenever `NODE_ENV` is not `production`, so events stay on the dev server. The event key and signing key are not required until the API talks to Inngest Cloud.
 
-Create/import returns `201` with `{ id, title, type, status, error }`. `status` is `PENDING` and `source` is filled later (except TEXT/MARKDOWN, which already store `content` and still go through the job for chunks). `error` is set when a job fails for good.
+## Code layout
 
-`SourceType`: `PDF`, `WEBSITE`, `YOUTUBE`, `TEXT`, `MARKDOWN`.
+Server code is `route → service → repository`.
 
-`SourceStatus`: `PENDING` → `PROCESSING` → `COMPLETED` or `FAILED`.
+| Layer | Job |
+|-------|-----|
+| Route | Parse params and body with Zod, send the JSON envelope, attach rate limits |
+| Service | Rules: membership, empty `sourceIds`, enqueue the event |
+| Repository | Prisma queries and the raw SQL that writes vectors |
+| `server/src/lib` | Cloudinary, PDF, Firecrawl, YouTube, chunking, OpenAI, Inngest client |
+| `server/src/inngest` | `process-source`, `generate-artifact` |
 
-### Artifacts
+A route does not embed text. A repository does not decide that an empty source list is invalid. That keeps the HTTP edge replaceable and the SQL in one place.
 
-Mounted at `/api/workspace/:workspaceId/artifact`. Same membership check as sources.
+The success envelope is `{ success: true, result }`. Failure is `{ success: false, error }`. Auth is the `token` cookie: `httpOnly`, `sameSite: "lax"`, `secure` when `NODE_ENV` is `production`. The JWT is never handed to JavaScript. Passwords are Argon2id hashes.
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/artifact` | `{ type, title?, sourceIds? }`. Creates a `PENDING` row and sends `artifact/generate.requested`. `type` is `SUMMARY`, `TAKEAWAYS`, `FLASHCARDS`, `QUIZ`, `MINDMAP`, or `REPORT`. An empty `sourceIds` list is `400`. Omitting `sourceIds` stores every `COMPLETED` source in the workspace. Passed ids must already be `COMPLETED` in that workspace |
-| `GET` | `/artifact/:artifactId` | Full row, including `content` and `error` |
+CORS allows one browser origin, `CLIENT_ORIGIN`, with credentials. It defaults to `http://localhost:3000` so a local `.env` that predates this variable still boots.
 
-`content` stays `null` until the job finishes. Shapes:
+## Authorization
 
-| Type | `content` |
-|------|-----------|
-| `SUMMARY` | `{ summary }` |
-| `TAKEAWAYS` | `{ takeaways: string[] }` |
-| `FLASHCARDS` | `{ cards: [{ front, back }] }` |
-| `QUIZ` | `{ questions: [{ question, choices, answerIndex }] }` |
-| `MINDMAP` | `{ root: { label, children } }` with at most three levels |
-| `REPORT` | `{ title, sections: [{ heading, body }] }` |
+A workspace has an owner and a member list. The owner is connected as a member at creation, so one membership check covers reads.
 
-Workspace detail artifact rows stay `{ id, title, type, status }`.
+| Action | Rule |
+|--------|------|
+| Read a workspace, its sources, chats, and artifacts | Any member. A stranger gets `404`, so ids are not confirmed to exist |
+| Rename, change `defaultModel`, delete | Owner only |
+| Invite | Owner only. `POST /api/workspace/:workspaceId/invites` with `{ email }` returns a token that lasts 7 days |
+| Accept | `POST /api/workspace/invites/accept` with `{ token }`. The signed-in user's email must match. The user is connected on `Workspace.users` |
 
-### Chats
-
-Mounted at `/api/workspace/:workspaceId/chat`. Same membership check as sources.
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/chat` | Threads for the workspace: `{ id, title, updatedAt }`, newest first |
-| `POST` | `/chat` | `{ title? }` (default `"New Chat"`, max 200). Returns the new thread |
-| `GET` | `/chat/:chatId` | Thread plus messages in time order |
-| `DELETE` | `/chat/:chatId` | Delete the thread and its messages |
-| `POST` | `/chat/:chatId/messages` | `{ content, sourceIds? }`. `content` is 1–8000 characters. Responds with server-sent events |
-
-The message stream is `text/event-stream`. Each event is `event: <type>` and one JSON `data` line:
-
-| Event | Data |
-|-------|------|
-| `user` | `{ message }` saved user turn |
-| `citations` | `{ citations }` passage hits used for the reply |
-| `token` | `{ text }` next piece of the answer |
-| `done` | `{ message }` saved assistant turn, including citations |
-| `error` | `{ message }` if the reply fails after the stream has started |
-
-A failure before the stream starts is the normal JSON error envelope. Dates arrive as ISO strings.
-
-### Rate limits
-
-Limits are counted in memory on this API process. A restart clears them. `429` returns `{ success: false, error: "Too many requests" }`.
-
-| Route | Limit |
-|-------|-------|
-| `POST /api/auth/register` | 5 per 15 minutes per IP |
-| `POST /api/auth/login` | 10 per 15 minutes per IP |
-| `POST /api/workspace/:workspaceId/chat/:chatId/messages` | 20 per minute per user |
-| `POST /api/workspace/:workspaceId/source/search` | 30 per minute per user |
-| `POST /api/workspace/:workspaceId/artifact` | 10 per hour per user |
-
-Workspace detail still includes chat titles (`{ id, title }`) and artifact summaries. Message bodies come from the chat detail route, not from the workspace payload.
-
----
-
-## Ingest
-
-`inngest.send({ name: "source/process.requested", data: { sourceId, workspaceId } })` after every create/import (and after reprocess). `process-source` listens for that event.
-
-| Type | Job |
-|------|-----|
-| PDF | Download from Cloudinary, extract with unpdf, `chunkPages` (keeps `metadata.page`) |
-| WEBSITE | Firecrawl scrape → markdown, `chunkText` |
-| YOUTUBE | `youtube-transcript`, `chunkText` |
-| TEXT / MARKDOWN | Use stored `source`, `chunkText` |
-
-Then `replaceSourceChunks` (delete existing slices + `createMany` in one transaction), embed with `text-embedding-3-small` (1536 dimensions, stored on `SourceChunk.embedding` with an HNSW cosine index), and `completeSource`. Empty extract/transcript/chunks, missing captions, or a permanent embedding failure set `FAILED` and store `error`. Download/scrape blips retry (up to 3).
-
-Chunking lives in `server/src/lib/chunking.ts`. Defaults in `ai-config.ts`: `CHUNK_SIZE` 1000 characters, `CHUNK_OVERLAP` 100, `RAG_TOP_K` 6, `RAG_MIN_SCORE` 0.5. Chat keeps a short summary every `CONVERSATION_SUMMARY_INTERVAL` older turns and sends the last `RECENT_MESSAGE_WINDOW` messages with the question.
-
-`artifact/generate.requested` runs `generate-artifact`. The job marks the row `PROCESSING`, reads the stored source ids from Postgres, asks the workspace's default model for JSON, saves that JSON on `content`, and returns only `{ type }`. It then sets `COMPLETED`. The prompt keeps at most 12,000 characters from each source and 48,000 characters overall. Empty text, a missing artifact, or a permanent model error sets `FAILED` and stores `error`. A bad model response or a 5xx retries up to 3 times.
-
----
+There is no mailer. The token is the invite. A pending invite for the same email is returned again instead of minting a second one. This is enough to share a workspace. Sending the email, and expiring tokens with a sweeper, are later work.
 
 ## Data model
 
-`server/prisma/schema.prisma` is migrated, including `LearningArtifact.error` and `WorkspaceInvite`.
-
 ```
 User
-  ├── ownedWorkspaces
-  └── workspaces (members)
+  └── owned workspaces, member workspaces
 
 Workspace
-  ├── owner, members, defaultModel
-  ├── sources, chats, artifacts
-
-Chat
-  ├── summary, summaryMessageCount
-  └── messages (role, content, citations)
+  ├── defaultModel          gpt-4o-mini or gpt-4o
+  ├── sources, chats, artifacts, invites
 
 Source
-  ├── source (full text), url, fileUrl, metadata, error
-  └── chunks (index, content, metadata, embedding vector(1536))
+  ├── source                full extracted text, in Postgres
+  ├── status                PENDING → PROCESSING → COMPLETED or FAILED
+  ├── error                 short final failure, cleared when processing restarts
+  └── chunks                content, page metadata, embedding vector(1536)
+
+Chat
+  ├── summary               rolling memory of older turns
+  └── messages              role, content, citations JSON
 
 LearningArtifact
-  └── type, status, title, content, error, sourceIds
+  ├── type                  SUMMARY, TAKEAWAYS, FLASHCARDS, QUIZ, MINDMAP, REPORT
+  ├── content               JSON, null until the job finishes
+  ├── sourceIds             snapshot of the sources used
+  └── error
 
 WorkspaceInvite
   └── email, token, expiresAt, acceptedAt
 ```
 
-Workspace detail returns artifact summaries only. `GET /artifact/:artifactId` returns `content`.
+Chunks are their own table so a chat search never loads the whole document. The embedding column is `Unsupported("vector(1536)")` because Prisma cannot model pgvector. Inserts and search use parameterized raw SQL and cast with `::vector`. The HNSW cosine index is created at API boot, not in a Prisma migration. Prisma will sometimes call that index drift and offer to drop it. Do not reset the database for that warning.
 
----
+`Source.error` and `LearningArtifact.error` are one line, capped at 300 characters. They are the message a person can read. The Inngest run trace keeps the stack.
 
-## Frontend
+## Ingest
 
-`client/` is a Next.js app. API calls live in `client/src/services/` and keep the cookie on every request. `NEXT_PUBLIC_API_BASE_URL` defaults to `http://localhost:8080`. If the API `PORT` is not 8080, set this to match.
+`enqueueSourceProcessing` sends `source/process.requested` with `{ sourceId, workspaceId }` after every create, import, and reprocess. `process-source` is the only consumer. Nothing polls on a timer.
 
-| UI | Calls |
-|----|--------|
-| Auth modal | `POST /api/auth/register`, `POST /api/auth/login` |
-| Session | `GET /api/user/me` once, shared if several components ask together |
-| Log out | `POST /api/auth/logout` |
-| Workspace switcher | list, create, get, update, delete |
-| Upload | PDF import (two at a time), website and YouTube import, text/Markdown create, detail on open, single delete, bulk delete and reprocess in batches of 10, title list, passage search on submit |
-| Chat | List once per workspace, open one thread, create on the first question, stream the reply, delete |
+The function is a sequence of `step.run` checkpoints. If the embed step throws, Inngest runs the function again, returns the saved result of the steps that finished, and repeats the failed step. Each step's return value is posted back to this API on the next call, so a step returns a page count, a URL, or `{ count }`. The document stays on the `Source` row.
 
-A few choices keep this from doing extra work:
+| Type | What the extract step writes | What it returns |
+|------|------------------------------|-----------------|
+| PDF | Joined text, plus a temporary `pages` array | `pageCount` |
+| Website | Markdown and the final URL | `{ sourceUrl }` |
+| YouTube | Transcript text, watch URL, video id | `{ sourceUrl, videoId }` |
+| Text, Markdown | Already stored by the create request | No extract step |
 
-- Workspace detail is cached per id and updated in place after a create, delete, or reprocess, instead of reloading the whole workspace.
-- Leaving a workspace aborts its in-flight detail request.
-- Title search filters the sources already on screen immediately, then confirms with the list endpoint after a short pause. The previous search is cancelled.
-- Passage search runs only when you submit. It is an embedding call, so it does not run on each keystroke.
-- While any source is `PENDING` or `PROCESSING`, the open workspace refetches the source list every 4 seconds, and skips that tick when the tab is hidden. The poll stops when every row is `COMPLETED` or `FAILED`.
-- Chat messages load when a thread is opened, and stay in memory if you leave and come back. Tokens are painted once per frame, not once per network chunk.
-- Switching threads or workspaces aborts the reply stream.
-- PDF bytes are checked in the browser (type and 50 MB) before the upload request.
-- File uploads omit `Content-Type` so the browser can set the multipart boundary.
-- Source preview text is capped in the page, and the detail request runs only after a row is opened.
+The chunk step reads that text back from Postgres, splits it, embeds it, and replaces that source's chunks in one transaction. PDF chunks keep `metadata.page`. After the insert commits, `pages` is deleted. The full text remains in `Source.source`. The page list was only the handoff between extract and chunk. Leaving it would store the PDF twice and ship it again whenever the source row is loaded.
 
-The Learn screen still lists title, type, and status from the workspace payload. Generated content comes from `GET /artifact/:artifactId`.
+`replaceSourceChunks` deletes the old chunks and inserts the new ones inside a 60 second transaction. The delete rolls back if an insert fails. Embeddings are requested before that transaction opens, so a slow OpenAI call does not hold a database lock.
 
----
+Settings on the function:
 
-## Still to build
+- **Retries: 3.** A normal throw uses Inngest's backoff: about 15 seconds, then 30, then 1 minute, plus up to 30 seconds of jitter. The attempt counter lives in Inngest, not in Postgres.
+- **`NonRetriableError`.** Missing file, empty extract, missing captions, missing API key, or an OpenAI 4xx other than 429. Inngest skips the backoff and `onFailure` sets `FAILED` plus `error`.
+- **Concurrency: one run per `sourceId`.** Two different documents can run together. The same document cannot, because both runs would be replacing its chunks.
 
-1. **Query-time extras.** Saving a web-search result as a source, and any cross-chat memory beyond the thread summary.
+`/api/inngest` accepts a JSON body up to 10 MB. That is a ceiling for Inngest's own step state. It is not the place the document is stored. Other routes keep the default body limit.
 
----
+Chunking defaults live in `server/src/lib/ai-config.ts`: 1000 characters, 100 of overlap. Overlap exists so a sentence cut in half still appears whole in one of the two chunks.
 
-## Run locally
+## Retrieval and chat
 
-Postgres from `server/docker-compose.yml` (user `mosaic`, database `mosaicdb`, port `5432`).
+Search embeds the query with `text-embedding-3-small` (1536 dimensions) and orders chunks by cosine distance in pgvector. The score is `1 - distance`. Rows worse than `RAG_MIN_SCORE` (0.5) are dropped, then `RAG_TOP_K` (6) are returned. The query always joins `Source` and filters by `workspaceId`, so a chunk from another workspace cannot match. An explicit empty `sourceIds` list searches nothing and does not call the embedding API. Omitting the list searches every `COMPLETED` source in the workspace.
 
-You need **three** processes: API, Inngest Dev Server, and the Next.js app.
+`POST /chat/:chatId/messages` is server-sent events, not a second WebSocket server. Express already holds the response open, and the client only needs a stream of tokens plus one terminal event. Events are `user`, `citations`, `token`, `done`, and `error`. Citations are the search hits stored on the assistant message. If search returns nothing, the reply is the fixed sentence `I couldn't find that in the sources for this workspace.` The chat model is not called.
+
+The model is the workspace `defaultModel`. The prompt gets the last 12 messages and a rolling summary of the older ones. The summary refreshes after 8 new turns fall outside that window, and a failure there does not fail the reply. That summary is per thread. It is not a memory of other chats.
+
+SSE was chosen over WebSockets because the reply is one direction and one response. WebSockets would add a connection registry and an auth handshake for the same stream.
+
+## Learn
+
+`POST /api/workspace/:workspaceId/artifact` creates a `PENDING` `LearningArtifact` and sends `artifact/generate.requested`. `generate-artifact` uses the same shape as source ingest: mark `PROCESSING`, do the model call inside a step, save the JSON on the row, return only `{ type }`, then mark `COMPLETED`.
+
+`sourceIds` follows the chat rule. An empty list is `400`. Omitting it snapshots every `COMPLETED` source at create time. Passed ids must already be `COMPLETED` in that workspace. The snapshot is deliberate. A source added after the click does not silently change a summary that is already generating.
+
+The prompt is capped at 12,000 characters per source and 48,000 overall, so one long PDF cannot blow the context window. The model must return JSON (`completeJson` sets `response_format: json_object`). The job checks that JSON against the schema for the type. A bad shape is retried. A permanent model error fails the artifact.
+
+`GET /artifact/:artifactId` returns `content`. Workspace detail still returns `{ id, title, type, status }` so opening a workspace does not download every generated study guide.
+
+| Type | `content` |
+|------|-----------|
+| `SUMMARY` | `{ summary }` |
+| `TAKEAWAYS` | `{ takeaways }` |
+| `FLASHCARDS` | `{ cards: [{ front, back }] }` |
+| `QUIZ` | `{ questions: [{ question, choices, answerIndex }] }` |
+| `MINDMAP` | `{ root }` with at most three levels |
+| `REPORT` | `{ title, sections: [{ heading, body }] }` |
+
+## Rate limits
+
+Limits live in a `Map` on this process: a count and a window end, keyed by limiter name plus IP or user id.
+
+| Route | Limit |
+|-------|-------|
+| `POST /api/auth/register` | 5 per 15 minutes per IP |
+| `POST /api/auth/login` | 10 per 15 minutes per IP |
+| Chat messages | 20 per minute per user |
+| Source search | 30 per minute per user |
+| Artifact create | 10 per hour per user |
+
+Over the limit, the error handler returns `429` with `Too many requests`. The map is the right tool for one API process: no network hop, and a login burst does not consume the artifact budget because the keys differ. A restart clears it. Two API processes would each keep their own counts. A shared store is the replacement when the API is no longer a single process.
+
+## Decisions
+
+**pgvector in the same Postgres, not a separate vector service.** The chunks already belong to a source and a workspace. Filtering by `workspaceId` and `COMPLETED` is a SQL join. A second database would mean a second id space and a second failure mode. The cost is raw SQL for the vector column and an index Prisma does not own.
+
+**Inngest, not cron.** Cron wakes up even when nobody uploaded anything, and a failed halfway job needs its own checkpoint table. An event names the source. Steps are the checkpoints. The tradeoff is an extra process and a callback URL.
+
+**Text in Postgres, counts in the step result.** The first version returned the extracted PDF from `step.run`. Inngest posts that result back on the next step, and a normal chapter already exceeded the body limit. The document is a database value. The step result is a number.
+
+**One transaction for chunk replacement, none around the model call.** The embedding request can take seconds. Holding a transaction across it would pin a connection. The transaction starts after the vectors exist and covers only the delete plus the inserts.
+
+**Cookie session, not a token in `localStorage`.** The client cannot read the JWT, so a script on the page cannot exfiltrate it. The cost is CORS with credentials and a single allowed origin.
+
+**Per-thread summary, not a memory product.** The summary is a column on `Chat`, updated after the reply is saved. It gives the model continuity inside one study session. It does not remember facts across chats, and it is not cited as a source.
+
+## Still open
+
+**Web search as a source.** There is no route for this. Add one that runs the search, saves the result as a normal source, and enqueues the existing ingest job.
+
+Also open, in the order they start to matter:
+
+- Deliver invite emails. The owner can copy an invite link from the workspace menu. Nothing sends that link.
+- Cross-chat memory. The thread summary is the boundary. A memory layer would be retrieved as a system note and would never become a citation.
+- Move rate-limit buckets to a shared store once more than one API process is running.
+- Tests around the step boundaries: empty `sourceIds`, a permanent ingest error, and a chunk replace that rolls back.
+
+## Run
+
+Postgres comes from `server/docker-compose.yml` (`pgvector/pgvector:pg17`). Copy `server/.env.example` to `server/.env` and fill it in. `FIRECRAWL_API_KEY` is required to import a website. `OPENAI_API_KEY` is required to embed, to chat, and to write study guides. `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` are required only in production. `CLIENT_ORIGIN` is the browser origin allowed to send the cookie.
 
 ```bash
 cd server
@@ -257,13 +203,13 @@ npx prisma migrate dev
 npm run dev
 ```
 
-Second terminal, also in `server/` (start this after the API is listening):
+In a second terminal, after the API is listening:
 
 ```bash
 npm run inngest:dev
 ```
 
-That CLI points at `http://localhost:9090/api/inngest`. If your `PORT` is not `9090`, change the script or pass `-u http://localhost:<PORT>/api/inngest`. UI: [http://localhost:8288](http://localhost:8288).
+That command targets `http://localhost:9090/api/inngest`. Change it if `PORT` is different. The Inngest UI is [http://localhost:8288](http://localhost:8288).
 
 ```bash
 cd client
@@ -271,48 +217,6 @@ npm install
 npm run dev
 ```
 
-The API default port is `8080` (`PORT` in `server/.env` overrides it). The site listens on port `3000`. That origin is the one the API allows.
+The site listens on port `3000`. Point `NEXT_PUBLIC_API_BASE_URL` at the API if it is not `http://localhost:8080`.
 
-After a PDF/website/YouTube/text import you should see `source/process.requested` in the Inngest UI, then `SourceChunk` rows in Prisma Studio (`npx prisma studio` from `server/`).
-
----
-
-## Environment
-
-**Server, required at boot:** `DATABASE_URL`, `JWT_SECRET`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
-
-**Server, required for website import:** `FIRECRAWL_API_KEY`.
-
-**Server, required for embeddings and chat replies:** `OPENAI_API_KEY`.
-
-**Server, optional:** `PORT` (default `8080`), `JWT_EXPIRES_IN` (days, default `7`), `NODE_ENV` (`production` sets a secure cookie). Local Inngest uses `isDev` when `NODE_ENV` is not `production`; you do not need `INNGEST_EVENT_KEY` locally. Production needs `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`.
-
-Cloudinary’s `CLOUDINARY_URL` is not read. Use the three separate vars. The part after `@` in that URL is the cloud name.
-
-**Client, optional:** `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8080`).
-
----
-
-## Repo
-
-```
-mosaic-research/
-  README.md
-  server/     Express, Prisma, auth, workspaces, sources, chat, Inngest ingest
-  client/     Next.js workspace UI
-```
-
-Server code is layered route → service → repository. Helpers live in `server/src/lib/` (Cloudinary, Firecrawl, PDF, YouTube, chunking, embeddings, OpenAI, Inngest client). Source ingest is `server/src/inngest/process-source.ts`. Artifact generation is `server/src/inngest/generate-artifact.ts`. Chat routes live in `server/src/modules/chat/`. Artifact routes live in `server/src/modules/artifact/`.
-
----
-
-## Security
-
-- Workspace reads, source routes, and chat routes require membership (`404` if the user is not a member).
-- Workspace rename, model changes, and delete are limited to the owner.
-- Responses omit `passwordHash`.
-- Passwords are hashed with Argon2id.
-- The auth cookie is `httpOnly`. The browser clears it by calling `POST /api/auth/logout`.
-- PDF upload runs only after the membership check. A failed database write deletes the Cloudinary file.
-- `/api/inngest` is unauthenticated by design; Inngest signs requests in production.
-- Source links in the UI are rendered only for `http` and `https` URLs.
+The license is ISC. See `LICENSE`.

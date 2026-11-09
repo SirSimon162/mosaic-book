@@ -1,17 +1,16 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { ConfirmDialog } from "./confirm";
+import { Icon } from "./icons";
 import { isAbort } from "@/services/api";
 import { MOSAIC } from "@/services/mosaic";
 import type {
-  ArtifactType,
   ChatMessageRecord,
   Citation,
   SourceDetail,
   SourceStatus,
   SourceType,
-  WorkspaceArtifact,
   WorkspaceSource,
 } from "@/services/mosaic";
 
@@ -28,15 +27,6 @@ const statusLabel: Record<SourceStatus, string> = {
   PROCESSING: "Processing",
   COMPLETED: "Ready",
   FAILED: "Failed",
-};
-
-const artifactLabel: Record<ArtifactType, string> = {
-  SUMMARY: "Summary",
-  TAKEAWAYS: "Takeaways",
-  FLASHCARDS: "Flashcards",
-  QUIZ: "Quiz",
-  MINDMAP: "Mind map",
-  REPORT: "Report",
 };
 
 const typeFilters: { value: "" | SourceType; label: string }[] = [
@@ -187,8 +177,11 @@ export function UploadPanel({
   const [busy, setBusy] = useState<Busy | null>(null);
   const [progress, setProgress] = useState("");
   const [notice, setNotice] = useState("");
+  const [composer, setComposer] = useState<null | "pdf" | "link" | "note">(null);
+  const [pendingDelete, setPendingDelete] = useState<string[] | null>(null);
   const [passage, setPassage] = useState("");
   const [hits, setHits] = useState<Citation[]>([]);
+  const [searched, setSearched] = useState(false);
   const passageAbort = useRef<AbortController | null>(null);
 
   const filtered = useMemo(() => {
@@ -218,7 +211,7 @@ export function UploadPanel({
       )
         .then((rows) => {
           if (generation !== queryGen.current) return;
-          setRemote(rows);
+          setRemote(Array.isArray(rows) ? rows : []);
         })
         .catch((cause: unknown) => {
           if (generation !== queryGen.current || isAbort(cause)) return;
@@ -284,7 +277,9 @@ export function UploadPanel({
         if (done < accepted.length) setProgress(`Uploading ${done + 1} of ${accepted.length}`);
       });
       invalidateSearch();
-      setNotice(failures.filter(Boolean).join(" "));
+      const failed = failures.filter(Boolean);
+      setNotice(failed.join(" "));
+      if (failed.length === 0) setComposer(null);
     } finally {
       setProgress("");
       setBusy(null);
@@ -308,6 +303,7 @@ export function UploadPanel({
       else await onWebsite(link.url, link.title);
       setUrl("");
       invalidateSearch();
+      setComposer(null);
     } catch (cause) {
       setNotice(failureMessage(cause, "Could not import that link"));
     } finally {
@@ -331,6 +327,7 @@ export function UploadPanel({
       setNoteTitle("");
       setNoteBody("");
       invalidateSearch();
+      setComposer(null);
     } catch (cause) {
       setNotice(failureMessage(cause, "Could not save the note"));
     } finally {
@@ -387,7 +384,10 @@ export function UploadPanel({
     setNotice("");
     try {
       const next = await MOSAIC.searchSources(workspaceId, { query: queryText }, controller.signal);
-      if (!controller.signal.aborted) setHits(next);
+      if (!controller.signal.aborted) {
+        setHits(next);
+        setSearched(true);
+      }
     } catch (cause) {
       if (!isAbort(cause)) setNotice(failureMessage(cause, "Could not search these sources"));
     } finally {
@@ -420,193 +420,268 @@ export function UploadPanel({
     });
   }
 
+  function toggleAllVisible() {
+    const ids = visible.map((source) => source.id);
+    setSelected((current) => {
+      const next = new Set(current);
+      const allOn = ids.length > 0 && ids.every((id) => next.has(id));
+      ids.forEach((id) => {
+        if (allOn) next.delete(id);
+        else next.add(id);
+      });
+      return next;
+    });
+  }
+
   const selectedCount = visible.filter((source) => selected.has(source.id)).length;
+  const allVisibleSelected = visible.length > 0 && selectedCount === visible.length;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-8 sm:px-10">
-      <p className="font-tertiary text-[11px] tracking-[0.16em] text-secondary">SOURCES</p>
-      <h1 className="mt-2 font-secondary text-4xl tracking-tight">Add material</h1>
-      <p className="mt-3 max-w-xl text-sm leading-relaxed text-secondary">
-        A PDF, a site, a video, or a note. It stays in this workspace and can be cited later.
+    <div className="m-page flex flex-col">
+      <p className="m-kicker">SOURCES</p>
+      <h1 className="m-title mt-2">Add material</h1>
+      <p className="m-muted mt-3 max-w-xl text-sm leading-relaxed">
+        Pick a kind of material, then add it. Everything already here is listed below.
       </p>
 
-      <label
-        className={`mt-8 flex cursor-pointer flex-col items-center rounded-2xl border border-dashed border-primary bg-secondary px-6 py-12 text-center hover:border-accent ${
-          locked ? "pointer-events-none opacity-60" : ""
-        }`}
-      >
-        <span className="font-secondary text-2xl">{progress || "Drop a PDF"}</span>
-        <span className="mt-2 text-sm text-secondary">Up to 50 MB. Other file types stay out for now.</span>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/pdf,.pdf"
-          multiple
-          className="sr-only"
-          onChange={(event) => void addFiles(event.target.files)}
-        />
-      </label>
-
-      <form onSubmit={(event) => void addUrl(event)} className="mt-4 flex gap-2">
-        <input
-          value={url}
-          onChange={(event) => setUrl(event.target.value)}
-          placeholder="Paste a site or a YouTube link"
-          disabled={locked}
-          className="min-w-0 flex-1 rounded-lg border border-primary bg-secondary px-3 py-2.5 text-sm text-primary outline-none focus:border-accent disabled:opacity-60"
-        />
-        <button
-          type="submit"
-          disabled={locked}
-          className="rounded-lg bg-accent px-4 text-sm text-on-accent disabled:opacity-60"
-        >
-          {busy === "url" ? "Importing" : "Add"}
-        </button>
-      </form>
-
-      <form onSubmit={(event) => void addNote(event)} className="mt-4 rounded-2xl border border-primary bg-secondary p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="font-tertiary text-[10px] tracking-[0.14em] text-secondary">NOTES</p>
-          <div className="grid grid-cols-2 rounded-lg bg-primary p-1">
-            {(
-              [
-                ["TEXT", "Text"],
-                ["MARKDOWN", "Markdown"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setNoteType(value)}
-                className={`rounded-md px-3 py-1.5 text-sm ${
-                  noteType === value ? "bg-secondary text-primary" : "text-secondary"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <input
-          value={noteTitle}
-          onChange={(event) => setNoteTitle(event.target.value)}
-          maxLength={200}
-          placeholder="Title"
-          disabled={locked}
-          className="mt-3 w-full rounded-lg border border-primary bg-primary px-3 py-2.5 text-sm text-primary outline-none focus:border-accent disabled:opacity-60"
-        />
-        <textarea
-          value={noteBody}
-          onChange={(event) => setNoteBody(event.target.value)}
-          rows={5}
-          placeholder="Paste the passage you want to keep"
-          maxLength={100000}
-          disabled={locked}
-          className="mt-2 w-full resize-y rounded-lg border border-primary bg-primary px-3 py-2.5 text-sm text-primary outline-none focus:border-accent disabled:opacity-60"
-        />
-        <button
-          type="submit"
-          disabled={locked}
-          className="mt-3 rounded-lg bg-accent px-4 py-2 text-sm text-on-accent disabled:opacity-60"
-        >
-          {busy === "note" ? "Saving" : "Save note"}
-        </button>
-      </form>
-
-      {notice && <p className="mt-4 text-sm text-secondary">{notice}</p>}
-
-      <div className="mt-8 flex flex-wrap items-center gap-2">
-        <input
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setNotice("");
-          }}
-          placeholder="Search titles"
-          className="min-w-0 flex-1 rounded-lg border border-primary bg-secondary px-3 py-2 text-sm text-primary outline-none focus:border-accent"
-        />
-        <select
-          value={kind}
-          onChange={(event) => setKind(event.target.value as "" | SourceType)}
-          className="rounded-lg border border-primary bg-secondary px-3 py-2 text-sm text-primary outline-none focus:border-accent"
-        >
-          {typeFilters.map((item) => (
-            <option key={item.label} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={locked}
-          className="rounded-lg px-3 py-2 text-sm text-secondary hover:text-primary disabled:opacity-60"
-        >
-          {busy === "refresh" ? "Refreshing" : "Refresh"}
-        </button>
+      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {(
+          [
+            ["pdf", "PDF", "A file, up to 50 MB", "upload"],
+            ["link", "Link", "A site or a YouTube video", "link"],
+            ["note", "Note", "Text or markdown you write", "pencil"],
+          ] as const
+        ).map(([id, label, hint, icon]) => (
+          <button key={id} type="button" disabled={locked} onClick={() => setComposer(id)} className="m-tile">
+            <Icon name={icon} size={18} />
+            <span>
+              <span className="block text-sm">{label}</span>
+              <span className="m-muted mt-1 block text-xs leading-relaxed">{hint}</span>
+            </span>
+          </button>
+        ))}
       </div>
-      {searching && <p className="mt-2 text-sm text-secondary">Searching titles</p>}
-      {selectedCount > 0 && (
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <p className="text-sm text-secondary">{selectedCount} selected</p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                void reprocess(visible.filter((source) => selected.has(source.id)).map((source) => source.id))
-              }
-              disabled={locked}
-              className="rounded-lg border border-primary px-3 py-2 text-sm text-primary disabled:opacity-60"
-            >
-              {busy === "reprocess" ? "Processing" : "Process again"}
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                void remove(visible.filter((source) => selected.has(source.id)).map((source) => source.id))
-              }
-              disabled={locked}
-              className="rounded-lg bg-accent px-3 py-2 text-sm text-on-accent disabled:opacity-60"
-            >
-              {busy === "delete" ? "Removing" : "Remove"}
-            </button>
+
+      {composer && (
+        <div className="m-modal-scrim" onMouseDown={() => { if (!locked) setComposer(null); }}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={composer === "pdf" ? "Add a PDF" : composer === "link" ? "Add a link" : "Add a note"}
+            className="m-modal"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-lg tracking-tight">
+                {composer === "pdf" ? "Add a PDF" : composer === "link" ? "Add a link" : "Add a note"}
+              </p>
+              <div className="flex items-center gap-2">
+                {composer === "note" && (
+                  <div className="m-segment">
+                    {(
+                      [
+                        ["TEXT", "Text"],
+                        ["MARKDOWN", "Markdown"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button key={value} type="button" onClick={() => setNoteType(value)} data-selected={noteType === value}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  aria-label="Close"
+                  disabled={locked}
+                  onClick={() => setComposer(null)}
+                  className="m-icon-btn"
+                >
+                  <Icon name="close" size={16} />
+                </button>
+              </div>
+            </div>
+            {composer === "pdf" && (
+              <label className={`m-drop flex cursor-pointer flex-col items-center px-6 py-10 text-center ${locked ? "pointer-events-none opacity-60" : ""}`}>
+                <Icon name="upload" size={22} />
+                <span className="mt-3 text-lg tracking-tight">{progress || "Drop a PDF"}</span>
+                <span className="m-muted mt-2 text-sm">Up to 50 MB. Other file types stay out for now.</span>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  multiple
+                  className="sr-only"
+                  onChange={(event) => void addFiles(event.target.files)}
+                />
+              </label>
+            )}
+            {composer === "link" && (
+              <form onSubmit={(event) => void addUrl(event)}>
+                <input
+                  autoFocus
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder="Paste a site or a YouTube link"
+                  disabled={locked}
+                  className="m-field"
+                />
+                <button type="submit" disabled={locked} className="m-btn mt-3 w-full">
+                  {busy === "url" ? "Importing" : "Add"}
+                </button>
+              </form>
+            )}
+            {composer === "note" && (
+              <form onSubmit={(event) => void addNote(event)}>
+                <input
+                  value={noteTitle}
+                  onChange={(event) => setNoteTitle(event.target.value)}
+                  maxLength={200}
+                  placeholder="Title"
+                  disabled={locked}
+                  className="m-field"
+                />
+                <textarea
+                  value={noteBody}
+                  onChange={(event) => setNoteBody(event.target.value)}
+                  rows={5}
+                  placeholder="Paste the passage you want to keep"
+                  maxLength={100000}
+                  disabled={locked}
+                  className="m-field mt-2"
+                />
+                <button type="submit" disabled={locked} className="m-btn mt-3 w-full">
+                  {busy === "note" ? "Saving" : "Save note"}
+                </button>
+              </form>
+            )}
+            {notice && composer && <p className="m-muted mt-3 text-sm">{notice}</p>}
           </div>
         </div>
       )}
 
-      <form onSubmit={(event) => void findPassage(event)} className="mt-4 flex gap-2">
-        <input
-          value={passage}
-          onChange={(event) => setPassage(event.target.value)}
-          maxLength={8000}
-          placeholder="Find a passage in the indexed sources"
-          disabled={locked}
-          className="min-w-0 flex-1 rounded-lg border border-primary bg-secondary px-3 py-2 text-sm text-primary outline-none focus:border-accent disabled:opacity-60"
-        />
-        <button
-          type="submit"
-          disabled={locked}
-          className="rounded-lg bg-accent px-3 text-sm text-on-accent disabled:opacity-60"
-        >
-          {busy === "passage" ? "Finding" : "Find"}
-        </button>
-      </form>
-      {hits.length > 0 && (
-        <ul className="mt-3 space-y-2">
-          {hits.map((hit) => (
-            <li key={hit.chunkId} className="rounded-xl border border-primary bg-secondary px-4 py-3">
-              <p className="font-tertiary text-[10px] tracking-[0.12em] text-accent">
-                {hit.page ? `${hit.sourceTitle.toUpperCase()} · P.${hit.page}` : hit.sourceTitle.toUpperCase()}
-              </p>
-              <p className="mt-1 line-clamp-3 text-sm text-primary">{hit.snippet}</p>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="m-rule mt-10 grid min-w-0 grid-cols-1 gap-0 pt-8 lg:grid-cols-2 lg:grid-rows-[auto_auto_auto_auto_minmax(0,1fr)] lg:gap-0">
+      <section className="m-rule-stack flex min-w-0 flex-col gap-3 lg:col-start-1 lg:row-span-5 lg:row-start-1 lg:grid lg:grid-rows-subgrid lg:gap-x-0 lg:gap-y-3 lg:pr-8">
+        <p className="m-kicker">SEARCH</p>
+        <h2 className="text-lg tracking-tight">Search</h2>
+        <p className="m-muted text-sm leading-relaxed">
+          Find a passage in sources that have finished processing.
+        </p>
+        <form onSubmit={(event) => void findPassage(event)} className="flex min-w-0 items-center gap-2 self-start">
+          <input
+            value={passage}
+            onChange={(event) => setPassage(event.target.value)}
+            maxLength={8000}
+            placeholder="Search inside sources"
+            disabled={locked}
+            className="m-field min-w-0 flex-1"
+          />
+          <button type="submit" disabled={locked} className="m-btn shrink-0">
+            <Icon name="search" size={14} />
+            {busy === "passage" ? "Finding" : "Find"}
+          </button>
+        </form>
+        <div className="min-w-0">
+        {busy === "passage" && <p className="m-muted text-sm">Searching</p>}
+        {searched && hits.length === 0 && busy !== "passage" && (
+          <p className="m-muted text-sm">Nothing matched.</p>
+        )}
+        {hits.length > 0 && (
+          <ul className="grid min-w-0 gap-3">
+            {hits.map((hit) => (
+              <li key={hit.chunkId} className="m-card m-hit px-4 py-4">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <p className="min-w-0 text-sm leading-relaxed break-words">{hit.sourceTitle}</p>
+                  {hit.page ? <span className="m-chip shrink-0">p.{hit.page}</span> : null}
+                </div>
+                <p className="mt-3 text-sm leading-relaxed">{hit.snippet}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        </div>
+      </section>
 
-      <ul className="mt-4 divide-y divide-primary overflow-hidden rounded-2xl border border-primary bg-secondary">
+      <section className="order-first m-rule-side flex min-w-0 flex-col gap-3 lg:order-none lg:col-start-2 lg:row-span-5 lg:row-start-1 lg:grid lg:grid-rows-subgrid lg:gap-x-0 lg:gap-y-3">
+        <p className="m-kicker">IN THIS WORKSPACE</p>
+        <h2 className="text-lg tracking-tight">Sources{sources.length > 0 ? ` · ${sources.length}` : ""}</h2>
+        <p className="m-muted text-sm leading-relaxed">Filter the material already in this workspace.</p>
+
+      <div className="flex min-w-0 items-center gap-2 self-start">
+          <input
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setNotice("");
+            }}
+            placeholder="Filter by title"
+            className="m-field m-field-grow"
+          />
+          <select
+            value={kind}
+            onChange={(event) => setKind(event.target.value as "" | SourceType)}
+            aria-label="Source type"
+            className="m-field m-field-type"
+          >
+            {typeFilters.map((item) => (
+              <option key={item.label} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <button
+            type="button"
+            aria-pressed={allVisibleSelected}
+            onClick={toggleAllVisible}
+            disabled={locked || visible.length === 0}
+            data-selected={allVisibleSelected}
+            className="m-btn-quiet"
+          >
+            <Icon name="selectAll" size={14} />
+            {allVisibleSelected ? "Clear" : "Select all"}
+          </button>
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+            {selectedCount > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void reprocess(visible.filter((source) => selected.has(source.id)).map((source) => source.id))
+                  }
+                  disabled={locked}
+                  className="m-btn-quiet"
+                >
+                  <Icon name="refresh" size={14} />
+                  {busy === "reprocess" ? "Processing" : "Process again"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPendingDelete(visible.filter((source) => selected.has(source.id)).map((source) => source.id))
+                  }
+                  disabled={locked}
+                  className="m-btn"
+                >
+                  <Icon name="trash" size={14} />
+                  {busy === "delete" ? "Removing" : "Remove"}
+                </button>
+              </>
+            )}
+            <button type="button" onClick={() => void refresh()} disabled={locked} className="m-btn-quiet">
+              <Icon name="refresh" size={14} />
+              {busy === "refresh" ? "Refreshing" : "Refresh"}
+            </button>
+          </div>
+        </div>
+      {notice && !composer && <p className="m-muted mt-3 text-sm">{notice}</p>}
+      {searching && <p className="m-muted mt-3 text-sm">Searching titles</p>}
+
+      <ul className="m-list mt-3">
         {visible.length === 0 && (
-          <li className="px-4 py-6 text-sm text-secondary">
+          <li className="m-muted px-4 py-8 text-sm">
             {query.trim() || kind ? "Nothing matches." : "Nothing in this workspace yet."}
           </li>
         )}
@@ -621,64 +696,63 @@ export function UploadPanel({
           const file = safeHttp(detail?.fileUrl ?? null);
           return (
             <li key={source.id}>
-              <div className="flex items-center gap-3 px-4 py-3">
+              <div className="m-source">
                 <input
                   type="checkbox"
                   checked={selected.has(source.id)}
                   onChange={() => toggleSelected(source.id)}
                   aria-label={`Select ${source.title}`}
-                  className="size-4 shrink-0"
+                  className="size-4"
                 />
                 <button
                   type="button"
                   onClick={() => setOpenId(open ? null : source.id)}
-                  className="min-w-0 flex-1 text-left"
+                  className="min-w-0 text-left"
                 >
-                  <p className="truncate text-sm text-primary" title={source.title}>
+                  <p className="text-sm break-words" title={source.title}>
                     {source.title}
                   </p>
-                  <p className="mt-0.5 font-tertiary text-[10px] tracking-[0.12em] text-secondary">
-                    {kindLabel[source.type].toUpperCase()}
+                  <p className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="m-kicker">{kindLabel[source.type].toUpperCase()}</span>
+                    <span className="m-chip" data-status={source.status}>
+                      {statusLabel[source.status]}
+                    </span>
                   </p>
-                  {source.error && (
-                    <p className="mt-1 line-clamp-2 text-xs text-secondary">{source.error}</p>
-                  )}
+                  {source.error && <p className="m-muted mt-1 line-clamp-2 text-xs">{source.error}</p>}
                 </button>
-                <span
-                  className={`shrink-0 rounded-full px-2 py-0.5 font-tertiary text-[10px] ${
-                    source.status === "COMPLETED" ? "bg-tertiary text-accent" : "bg-primary text-secondary"
-                  }`}
-                >
-                  {statusLabel[source.status]}
-                </span>
                 <button
                   type="button"
                   aria-label={`Remove ${source.title}`}
-                  onClick={() => void remove([source.id])}
+                  onClick={() => setPendingDelete([source.id])}
                   disabled={locked}
-                  className="grid size-9 shrink-0 place-items-center rounded-lg text-secondary hover:bg-primary hover:text-primary disabled:opacity-60"
+                  className="m-icon-btn"
                 >
-                  <Trash2 className="size-4" />
+                  <Icon name="trash" />
                 </button>
               </div>
               {open && (
-                <div className="border-t border-primary px-4 py-3 text-sm text-secondary">
+                <div className="m-split m-muted px-4 py-3 text-sm">
                   {detailError && <p>{detailError}</p>}
-                  {!detailError && detail?.id !== source.id && <p>Opening</p>}
+                  {!detailError && detail?.id !== source.id && (
+                    <div className="space-y-2">
+                      <div className="m-skeleton w-2/3" />
+                      <div className="m-skeleton w-full" />
+                    </div>
+                  )}
                   {detail?.id === source.id && (
                     <div className="space-y-2">
                       {link && (
-                        <a href={link} target="_blank" rel="noreferrer" className="block truncate text-accent">
+                        <a href={link} target="_blank" rel="noreferrer" className="m-link block break-all">
                           {link}
                         </a>
                       )}
                       {file && (
-                        <a href={file} target="_blank" rel="noreferrer" className="block truncate text-accent">
+                        <a href={file} target="_blank" rel="noreferrer" className="m-link block truncate">
                           Open file
                         </a>
                       )}
                       {preview && (
-                        <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-primary">{preview}</p>
+                        <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-[var(--m-ink)]">{preview}</p>
                       )}
                       {!link && !file && !preview && <p>No preview stored for this source.</p>}
                     </div>
@@ -689,12 +763,50 @@ export function UploadPanel({
           );
         })}
       </ul>
+      </div>
+      </section>
+      </div>
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={pendingDelete && pendingDelete.length > 1 ? "Remove these sources?" : "Remove this source?"}
+        body="This takes the source out of the workspace. Chats that cited it keep their old replies."
+        confirmLabel="Remove"
+        pending={busy === "delete"}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          void remove(pendingDelete).finally(() => setPendingDelete(null));
+        }}
+        onClose={() => {
+          if (busy !== "delete") setPendingDelete(null);
+        }}
+      />
     </div>
   );
 }
 
 function citeLabel(hit: Citation) {
   return hit.page ? `${hit.sourceTitle} · p.${hit.page}` : hit.sourceTitle;
+}
+
+function CiteRow({ hits }: { hits: Citation[] }) {
+  const [open, setOpen] = useState(false);
+  const extra = Math.max(0, hits.length - 4);
+  const shown = open ? hits : hits.slice(0, 4);
+  const share = !open && shown.length > 1;
+  return (
+    <div className={`mt-2 flex min-w-0 items-center gap-1 ${open ? "flex-wrap" : "flex-nowrap"}`}>
+      {shown.map((hit) => (
+        <span key={hit.chunkId} title={citeLabel(hit)} className={`m-chip min-w-0 ${share ? "flex-1" : "max-w-48"}`}>
+          {citeLabel(hit)}
+        </span>
+      ))}
+      {!open && extra > 0 && (
+        <button type="button" className="m-chip" onClick={() => setOpen(true)}>
+          +{extra} more
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function ChatPanel({
@@ -719,6 +831,7 @@ export function ChatPanel({
   onDelete?: () => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [confirming, setConfirming] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -734,144 +847,84 @@ export function ChatPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-start justify-between gap-4 border-b border-primary px-6 py-5 sm:px-10">
+    <div className="flex h-full min-h-0 w-full flex-col">
+      <div className="flex items-start justify-between gap-3 px-4 py-4 sm:px-8" style={{ borderBottom: "1px solid var(--m-line)" }}>
         <div className="min-w-0">
-          <p className="font-tertiary text-[11px] tracking-[0.16em] text-secondary">CHAT</p>
-          <h1 className="mt-2 truncate font-secondary text-3xl tracking-tight">{title}</h1>
+          <p className="m-kicker">CHAT</p>
+          <h1 className="m-title mt-2 truncate">{title}</h1>
         </div>
         {onDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={pending}
-            className="shrink-0 rounded-lg px-3 py-2 text-sm text-secondary hover:text-primary disabled:opacity-60"
-          >
+          <button type="button" onClick={() => setConfirming(true)} disabled={pending} className="m-btn-quiet shrink-0">
             Delete
           </button>
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 sm:px-10">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8">
         {loading ? (
-          <p className="text-sm text-secondary">Opening chat</p>
+          <div className="space-y-3">
+            <div className="m-skeleton w-24" />
+            <div className="m-skeleton w-2/3" />
+            <div className="m-skeleton w-1/2" />
+          </div>
         ) : messages.length === 0 && !draftText && !pending ? (
-          <p className="max-w-md text-sm leading-relaxed text-secondary">
+          <p className="m-muted max-w-lg text-sm leading-relaxed">
             Ask this workspace. The reply is grounded in the sources that have finished processing.
           </p>
         ) : (
-          <ul className="mx-auto flex max-w-2xl flex-col gap-5">
-            {messages.map((message) => (
-              <li key={message.id} className="text-sm leading-relaxed">
-                <p className="font-tertiary text-[10px] tracking-[0.14em] text-secondary">
-                  {message.role === "USER" ? "YOU" : "MOSAIC"}
-                </p>
-                <p className="mt-1 whitespace-pre-wrap text-primary">{message.content}</p>
-                {message.citations && message.citations.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {message.citations.map((hit) => (
-                      <span
-                        key={hit.chunkId}
-                        className="rounded-full bg-tertiary px-2 py-0.5 font-tertiary text-[10px] text-accent"
-                      >
-                        {citeLabel(hit)}
-                      </span>
-                    ))}
-                  </div>
-                )}
+          <ul className="flex w-full flex-col gap-3">
+            {messages.map((message) => {
+              const mine = message.role === "USER";
+              return (
+              <li key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                <div className={mine ? "m-bubble m-bubble-user" : "m-bubble m-bubble-agent"}>
+                <p className="m-kicker">{mine ? "YOU" : "MOSAIC"}</p>
+                <p className="mt-1 whitespace-pre-wrap">{message.content}</p>
+                {message.citations && message.citations.length > 0 && <CiteRow hits={message.citations} />}
+                </div>
               </li>
-            ))}
+              );
+            })}
             {(draftText || (pending && liveCitations.length > 0)) && (
-              <li className="text-sm leading-relaxed">
-                <p className="font-tertiary text-[10px] tracking-[0.14em] text-secondary">MOSAIC</p>
-                <p className="mt-1 whitespace-pre-wrap text-primary">{draftText || "Reading the sources"}</p>
-                {liveCitations.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {liveCitations.map((hit) => (
-                      <span
-                        key={hit.chunkId}
-                        className="rounded-full bg-tertiary px-2 py-0.5 font-tertiary text-[10px] text-accent"
-                      >
-                        {citeLabel(hit)}
-                      </span>
-                    ))}
-                  </div>
-                )}
+              <li className="flex justify-start">
+                <div className="m-bubble m-bubble-agent">
+                <p className="m-kicker">MOSAIC</p>
+                <p className="mt-1 whitespace-pre-wrap">{draftText || "Reading the sources"}</p>
+                {liveCitations.length > 0 && <CiteRow hits={liveCitations} />}
+                </div>
               </li>
             )}
           </ul>
         )}
-        {error && <p className="mx-auto mt-4 max-w-2xl text-sm text-secondary">{error}</p>}
+        {error && <p className="m-muted mt-4 text-sm">{error}</p>}
         <div ref={endRef} />
       </div>
+      <ConfirmDialog
+        open={confirming}
+        title="Delete this chat?"
+        body="The messages in this thread are removed. The sources stay."
+        confirmLabel="Delete"
+        pending={pending}
+        onConfirm={() => {
+          onDelete?.();
+          setConfirming(false);
+        }}
+        onClose={() => setConfirming(false)}
+      />
 
-      <form onSubmit={submit} className="border-t border-primary px-6 py-4 sm:px-10">
-        <div className="mx-auto flex max-w-2xl gap-2">
-          <input
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            maxLength={8000}
-            placeholder="Ask about a source"
-            disabled={pending}
-            className="min-w-0 flex-1 rounded-lg border border-primary bg-secondary px-3 py-2.5 text-sm text-primary outline-none focus:border-accent disabled:opacity-60"
-          />
-          <button
-            type="submit"
-            disabled={pending}
-            className="rounded-lg bg-accent px-4 text-sm text-on-accent disabled:opacity-60"
-          >
-            {pending ? "Asking" : "Ask"}
-          </button>
-        </div>
+      <form onSubmit={submit} className="m-dock gap-2 px-4 sm:px-8">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          maxLength={8000}
+          placeholder="Ask about a source"
+          disabled={pending}
+          className="m-field min-w-0 flex-1 !w-auto"
+        />
+        <button type="submit" disabled={pending} className="m-btn m-ask">
+          {pending ? "Asking" : "Ask"}
+        </button>
       </form>
-    </div>
-  );
-}
-
-export function LearnPanel({ artifacts }: { artifacts: WorkspaceArtifact[] }) {
-  const [active, setActive] = useState<string | null>(artifacts[0]?.id ?? null);
-  const piece = artifacts.find((item) => item.id === active) ?? artifacts[0] ?? null;
-
-  return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-8 sm:px-10">
-      <p className="font-tertiary text-[11px] tracking-[0.16em] text-secondary">LEARN</p>
-      <h1 className="mt-2 font-secondary text-4xl tracking-tight">From the same sources</h1>
-      <p className="mt-3 max-w-xl text-sm leading-relaxed text-secondary">
-        Summaries, cards, quizzes, and reports for this workspace show up here once they are generated.
-      </p>
-
-      {piece === null ? (
-        <p className="mt-8 rounded-2xl border border-primary bg-secondary px-4 py-6 text-sm text-secondary">
-          Nothing generated for this workspace yet.
-        </p>
-      ) : (
-        <>
-          <div className="mt-8 flex flex-wrap gap-2">
-            {artifacts.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setActive(item.id)}
-                className={`rounded-lg px-3 py-2 text-sm ${
-                  item.id === piece.id
-                    ? "bg-tertiary text-primary"
-                    : "bg-secondary text-secondary hover:text-primary"
-                }`}
-              >
-                {item.title}
-              </button>
-            ))}
-          </div>
-
-          <article className="mt-4 rounded-2xl border border-primary bg-secondary p-6">
-            <p className="font-tertiary text-[10px] tracking-[0.14em] text-accent">
-              {artifactLabel[piece.type].toUpperCase()}
-            </p>
-            <p className="mt-3 font-secondary text-2xl leading-snug text-primary">{piece.title}</p>
-            <p className="mt-3 text-sm text-secondary">{statusLabel[piece.status]}</p>
-          </article>
-        </>
-      )}
     </div>
   );
 }

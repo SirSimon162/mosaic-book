@@ -10,8 +10,10 @@ export const metadata: Metadata = {
 
 export default function MosaicLayout({ children }: { children: ReactNode }) {
   return (
-    <MosaicGate>
-      <WorkspaceProvider>{children}</WorkspaceProvider>
-    </MosaicGate>
+    <div data-mosaic className="h-full min-h-0">
+      <MosaicGate>
+        <WorkspaceProvider>{children}</WorkspaceProvider>
+      </MosaicGate>
+    </div>
   );
 }

@@ -2,26 +2,33 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { InviteLink } from "./invite-link";
 import { useWorkspaces } from "./use-workspaces";
 
-export function MosaicIndex() {
+export function MosaicIndex({ inviteToken = "" }: { inviteToken?: string }) {
   const router = useRouter();
   const { ready, entryId, error, reload } = useWorkspaces();
+  const token = inviteToken.trim();
 
   useEffect(() => {
+    if (token) return;
     if (ready && entryId) router.replace(`/mosaic/${entryId}`);
-  }, [ready, entryId, router]);
+  }, [ready, entryId, router, token]);
+
+  if (token) {
+    return (
+      <div className="grid h-full place-items-center px-6">
+        <InviteLink token={token} />
+      </div>
+    );
+  }
 
   if (ready && error && !entryId) {
     return (
-      <div className="grid h-full place-items-center bg-primary px-6 text-center">
+      <div className="grid h-full place-items-center px-6 text-center">
         <div>
-          <p className="text-sm text-secondary">{error}</p>
-          <button
-            type="button"
-            onClick={() => void reload()}
-            className="mt-4 rounded-lg bg-accent px-4 py-2 text-sm text-on-accent"
-          >
+          <p className="m-muted text-sm">{error}</p>
+          <button type="button" onClick={() => void reload()} className="m-btn mt-4">
             Try again
           </button>
         </div>
@@ -30,8 +37,8 @@ export function MosaicIndex() {
   }
 
   return (
-    <div className="grid h-full place-items-center bg-primary">
-      <p className="text-sm text-secondary">Opening workspace</p>
+    <div className="grid h-full place-items-center">
+      <p className="m-muted text-sm">Opening workspace</p>
     </div>
   );
 }

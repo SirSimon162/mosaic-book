@@ -10,12 +10,12 @@ export function MosaicGate({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   if (!ready || leaving) {
-    return <div className="h-full bg-primary" />;
+    return <div className="h-full" />;
   }
 
   if (!user) {
     return (
-      <div className="h-full bg-primary">
+      <div className="h-full">
         <AuthModal open onClose={() => router.push("/")} />
       </div>
     );

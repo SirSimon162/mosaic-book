@@ -1,11 +1,13 @@
 import { request, serverEvents, withQuery } from "./api";
 import type {
+  ArtifactDetail,
   ChatDetail,
   ChatMessageRecord,
   ChatModel,
   ChatRecord,
   ChatStreamEvent,
   Citation,
+  CreateArtifactBody,
   CreateSourceBody,
   CreateWorkspaceBody,
   ImportWebsiteBody,
@@ -16,6 +18,7 @@ import type {
   SessionUser,
   SourceDetail,
   UpdateWorkspaceBody,
+  WorkspaceInvite,
   Workspace,
   WorkspaceDetails,
   WorkspacePage,
@@ -28,6 +31,19 @@ const DEFAULT_MODEL: ChatModel = "gpt-4o-mini";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isSource(value: unknown): value is WorkspaceSource {
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string" && typeof value.title === "string" && typeof value.type === "string";
+}
+
+function sourceList(value: unknown): WorkspaceSource[] {
+  if (Array.isArray(value)) return value.filter(isSource);
+  if (!isRecord(value)) return [];
+  if (Array.isArray(value.result)) return sourceList(value.result);
+  if (Array.isArray(value.sources)) return sourceList(value.sources);
+  return [];
 }
 
 function isMessage(value: unknown): value is ChatMessageRecord {
@@ -118,11 +134,11 @@ export const MOSAIC = {
     return request<WorkspaceDetails>(workspacePath(id), { signal });
   },
 
-  listSources(workspaceId: string, query?: ListSourcesQuery, signal?: AbortSignal) {
-    return request<WorkspaceSource[]>(
-      withQuery(workspacePath(workspaceId, "/source"), query),
-      { signal },
-    );
+  async listSources(workspaceId: string, query?: ListSourcesQuery, signal?: AbortSignal) {
+    const result = await request<unknown>(withQuery(workspacePath(workspaceId, "/source"), query), {
+      signal,
+    });
+    return sourceList(result);
   },
 
   createSource(workspaceId: string, input: CreateSourceBody) {
@@ -227,6 +243,34 @@ export const MOSAIC = {
     );
   },
 
+  createArtifact(workspaceId: string, input: CreateArtifactBody) {
+    return request<ArtifactDetail>(workspacePath(workspaceId, "/artifact"), {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  getArtifact(workspaceId: string, artifactId: string, signal?: AbortSignal) {
+    return request<ArtifactDetail>(
+      workspacePath(workspaceId, `/artifact/${encodeURIComponent(artifactId)}`),
+      { signal },
+    );
+  },
+
+  createInvite(workspaceId: string, email: string) {
+    return request<WorkspaceInvite>(workspacePath(workspaceId, "/invites"), {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  acceptInvite(token: string) {
+    return request<{ workspaceId: string }>("/api/workspace/invites/accept", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+  },
+
   deleteChat(workspaceId: string, chatId: string) {
     return request<null>(workspacePath(workspaceId, `/chat/${encodeURIComponent(chatId)}`), {
       method: "DELETE",
@@ -258,7 +302,11 @@ export const MOSAIC = {
 };
 
 export type {
+  ArtifactDetail,
+  ArtifactStatus,
   ArtifactType,
+  CreateArtifactBody,
+  WorkspaceInvite,
   ChatDetail,
   ChatMessageRecord,
   ChatModel,

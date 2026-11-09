@@ -4,16 +4,26 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useSession } from "@/features/auth/session";
 import { type Mode } from "./data";
-import { ChatPanel, LearnPanel, UploadPanel } from "./panels";
+import { InviteLink } from "./invite-link";
+import { LearnPanel } from "./learn-panel";
+import { ChatPanel, UploadPanel } from "./panels";
+import { Icon } from "./icons";
 import { Sidebar } from "./sidebar";
 import { useWorkspaceChat } from "./use-chat";
 import { useWorkspaces } from "./use-workspaces";
 
-export function Dashboard({ workspaceId }: { workspaceId: string }) {
+export function Dashboard({
+  workspaceId,
+  inviteToken = "",
+}: {
+  workspaceId: string;
+  inviteToken?: string;
+}) {
   const router = useRouter();
   const session = useSession();
   const desk = useWorkspaces();
   const [mode, setMode] = useState<Mode>("chat");
+  const [menuOpen, setMenuOpen] = useState(false);
   const chat = useWorkspaceChat(workspaceId, mode === "chat");
 
   const ownerId =
@@ -46,8 +56,21 @@ export function Dashboard({ workspaceId }: { workspaceId: string }) {
     router.push(`/mosaic/${next}`);
   }
 
+  async function joinWorkspace(token: string) {
+    const id = await desk.acceptInvite(token);
+    router.push(`/mosaic/${id}`);
+  }
+
+  if (inviteToken.trim()) {
+    return (
+      <div className="grid h-full place-items-center px-6">
+        <InviteLink token={inviteToken} />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-full min-h-0 bg-primary text-primary">
+    <div className="flex h-full min-h-0">
       <Sidebar
         mode={mode}
         chatId={chat.chatId}
@@ -60,6 +83,7 @@ export function Dashboard({ workspaceId }: { workspaceId: string }) {
         saving={desk.saving}
         removing={desk.removing}
         canManage={canManage}
+        members={desk.active?.users ?? []}
         error={desk.error}
         onMode={setMode}
         onChat={openChat}
@@ -69,18 +93,32 @@ export function Dashboard({ workspaceId }: { workspaceId: string }) {
         onRename={desk.rename}
         onDelete={removeWorkspace}
         onModel={desk.setModel}
+        onInvite={desk.createInvite}
+        onJoin={joinWorkspace}
+        menuOpen={menuOpen}
+        onMenu={setMenuOpen}
       />
-      <main className={`min-h-0 flex-1 ${mode === "chat" ? "overflow-hidden" : "overflow-y-auto"}`}>
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          className="flex h-12 shrink-0 items-center gap-2 px-3 md:hidden"
+          style={{ borderBottom: "1px solid var(--m-line)" }}
+        >
+          <button type="button" aria-label="Open sidebar" onClick={() => setMenuOpen(true)} className="m-icon-btn">
+            <Icon name="sidebar" size={18} />
+          </button>
+          <p className="min-w-0 truncate text-sm">{desk.name || "Workspace"}</p>
+        </div>
+        <div className={`min-h-0 flex-1 ${mode === "chat" ? "overflow-hidden" : "overflow-y-auto"}`}>
         {!desk.ready || desk.opening ? (
-          <p className="px-6 py-10 text-sm text-secondary sm:px-10">Opening workspace</p>
+          <div className="m-page space-y-3">
+            <div className="m-skeleton w-28" />
+            <div className="m-skeleton w-1/2" />
+            <p className="m-muted text-sm">Opening workspace</p>
+          </div>
         ) : desk.error && !desk.active ? (
-          <div className="px-6 py-10 sm:px-10">
-            <p className="text-sm text-secondary">{desk.error}</p>
-            <button
-              type="button"
-              onClick={() => void desk.reopen()}
-              className="mt-4 rounded-lg bg-accent px-4 py-2 text-sm text-on-accent"
-            >
+          <div className="m-page">
+            <p className="m-muted text-sm">{desk.error}</p>
+            <button type="button" onClick={() => void desk.reopen()} className="m-btn mt-4">
               Try again
             </button>
           </div>
@@ -120,9 +158,19 @@ export function Dashboard({ workspaceId }: { workspaceId: string }) {
                 }
               />
             )}
-            {mode === "learn" && <LearnPanel key={workspaceId} artifacts={desk.active?.artifacts ?? []} />}
+            {mode === "learn" && (
+              <LearnPanel
+                workspaceId={workspaceId}
+                sources={desk.active?.sources ?? []}
+                artifacts={desk.active?.artifacts ?? []}
+                details={desk.artifactDetails}
+                onCreate={desk.createArtifact}
+                onLoad={desk.loadArtifact}
+              />
+            )}
           </>
         )}
+        </div>
       </main>
     </div>
   );

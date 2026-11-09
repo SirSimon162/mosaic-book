@@ -30,6 +30,7 @@ const environment = {
   JWT_SECRET,
   SECURE: process.env.NODE_ENV === "production",
   JWT_EXPIRES_IN: parseInt(process.env.JWT_EXPIRES_IN ?? "7") * 24 * 60 * 60,
+  CLIENT_ORIGIN: process.env.CLIENT_ORIGIN ?? "http://localhost:3000",
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET,
