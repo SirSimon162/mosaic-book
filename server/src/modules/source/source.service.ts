@@ -190,6 +190,9 @@ export async function searchWorkspaceSources(
   workspaceId: string,
   input: SearchSources,
 ): Promise<ChunkSearchHit[]> {
+  if (input.sourceIds && input.sourceIds.length === 0) {
+    return [];
+  }
   const [embedding] = await embedTexts([input.query]);
   if (!embedding) {
     throw new AppError("Failed to embed query", Status.INTERNAL_SERVER_ERROR);

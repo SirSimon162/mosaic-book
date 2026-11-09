@@ -8,8 +8,11 @@ import { EmptyYoutubeError, fetchYoutubeTranscript } from "../lib/youtube.js";
 import {
   completeSource,
   failSource,
-  getSource,
+  getSourceContent,
+  getSourceJobState,
   replaceSourceChunks,
+  saveSourceExtract,
+  updateSourceMetadata,
   updateSourceStatus,
 } from "../modules/source/source.repository.js";
 import { chunkPages, chunkText, type TextChunk } from "../lib/chunking.js";
@@ -31,6 +34,15 @@ function metadataRecord(
     return { ...(metadata as Record<string, unknown>) };
   }
   return {};
+}
+
+function readPages(metadata: Prisma.JsonValue | null) {
+  const pages = metadataRecord(metadata).pages;
+  if (!Array.isArray(pages)) {
+    return null;
+  }
+  const text = pages.filter((page): page is string => typeof page === "string");
+  return text.length > 0 ? text : null;
 }
 
 function publicIdFromMetadata(
@@ -67,11 +79,31 @@ async function persistChunks(sourceId: string, chunks: TextChunk[]) {
   return { count };
 }
 
-async function markFailed(data: ProcessSourceEvent | undefined) {
+const MAX_SOURCE_ERROR_LENGTH = 300;
+
+function failureMessage(message: string | undefined) {
+  const firstLine = message
+    ?.split("\n")[0]
+    ?.replace(/^NonRetriableError:\s*/i, "")
+    .trim();
+  if (!firstLine) {
+    return "Processing failed";
+  }
+  return firstLine.slice(0, MAX_SOURCE_ERROR_LENGTH);
+}
+
+async function markFailed(
+  data: ProcessSourceEvent | undefined,
+  message: string | undefined,
+) {
   if (!data?.sourceId || !data.workspaceId) {
     return;
   }
-  await failSource(data.workspaceId, data.sourceId).catch(() => undefined);
+  await failSource(
+    data.workspaceId,
+    data.sourceId,
+    failureMessage(message),
+  ).catch(() => undefined);
 }
 
 export const processSource = inngest.createFunction(
@@ -80,15 +112,18 @@ export const processSource = inngest.createFunction(
     retries: 3,
     concurrency: { key: "event.data.sourceId", limit: 1 },
     triggers: [{ event: "source/process.requested" }],
-    onFailure: async ({ event }) => {
-      await markFailed(event.data.event.data as ProcessSourceEvent);
+    onFailure: async ({ error, event }) => {
+      await markFailed(
+        event.data.event.data as ProcessSourceEvent,
+        error instanceof Error ? error.message : undefined,
+      );
     },
   },
   async ({ event, step }) => {
     const { sourceId, workspaceId } = event.data as ProcessSourceEvent;
 
     const source = await step.run("load-source", () =>
-      getSource(workspaceId, sourceId),
+      getSourceJobState(workspaceId, sourceId),
     );
 
     if (!source) {
@@ -99,9 +134,10 @@ export const processSource = inngest.createFunction(
       return { skipped: true };
     }
 
-    await step.run("mark-processing", () =>
-      updateSourceStatus(workspaceId, sourceId, SourceStatus.PROCESSING),
-    );
+    await step.run("mark-processing", async () => {
+      await updateSourceStatus(workspaceId, sourceId, SourceStatus.PROCESSING);
+      return { status: SourceStatus.PROCESSING };
+    });
 
     if (source.type === SourceType.PDF) {
       if (!source.fileUrl) {
@@ -109,12 +145,21 @@ export const processSource = inngest.createFunction(
       }
 
       const fileUrl = source.fileUrl;
-      const extracted = await step.run("extract-pdf", async () => {
+      const pageCount = await step.run("extract-pdf", async () => {
         try {
-          return await extractPdfFromCloudinary({
+          const extracted = await extractPdfFromCloudinary({
             fileUrl,
             ...publicIdFromMetadata(source.metadata),
           });
+          await saveSourceExtract(workspaceId, sourceId, {
+            source: extracted.text,
+            metadata: {
+              ...metadataRecord(source.metadata),
+              pages: extracted.pages,
+              pageCount: extracted.pageCount,
+            },
+          });
+          return extracted.pageCount;
         } catch (error) {
           if (error instanceof EmptyPdfError) {
             throw new NonRetriableError(error.message, { cause: error });
@@ -123,21 +168,34 @@ export const processSource = inngest.createFunction(
         }
       });
 
-      await step.run("chunk", () =>
-        persistChunks(sourceId, chunkPages(extracted.pages)),
-      );
+      await step.run("chunk", async () => {
+        const stored = await getSourceContent(workspaceId, sourceId);
+        const pages = readPages(stored?.metadata ?? null);
+        if (!pages) {
+          throw new NonRetriableError("PDF extract is missing pages");
+        }
+        const result = await persistChunks(sourceId, chunkPages(pages));
+        const metadata = metadataRecord(stored?.metadata ?? null);
+        delete metadata.pages;
+        await updateSourceMetadata(
+          workspaceId,
+          sourceId,
+          metadata as Prisma.InputJsonValue,
+        );
+        return result;
+      });
 
-      await step.run("save", () =>
-        completeSource(workspaceId, sourceId, {
-          source: extracted.text,
+      await step.run("save", async () => {
+        await completeSource(workspaceId, sourceId, {
           metadata: {
             ...metadataRecord(source.metadata),
-            pageCount: extracted.pageCount,
+            pageCount,
           },
-        }),
-      );
+        });
+        return { pageCount };
+      });
 
-      return { pageCount: extracted.pageCount };
+      return { pageCount };
     }
 
     if (source.type === SourceType.WEBSITE) {
@@ -146,9 +204,18 @@ export const processSource = inngest.createFunction(
       }
 
       const url = source.url;
-      const scraped = await step.run("scrape-website", async () => {
+      const saved = await step.run("scrape-website", async () => {
         try {
-          return await scrapeWebsite(url);
+          const scraped = await scrapeWebsite(url);
+          await saveSourceExtract(workspaceId, sourceId, {
+            source: scraped.markdown,
+            url: scraped.sourceUrl,
+            metadata: {
+              ...metadataRecord(source.metadata),
+              importedFrom: scraped.sourceUrl,
+            },
+          });
+          return { sourceUrl: scraped.sourceUrl };
         } catch (error) {
           if (error instanceof EmptyWebsiteError) {
             throw new NonRetriableError(error.message, { cause: error });
@@ -157,22 +224,26 @@ export const processSource = inngest.createFunction(
         }
       });
 
-      await step.run("chunk", () =>
-        persistChunks(sourceId, chunkText(scraped.markdown)),
-      );
+      await step.run("chunk", async () => {
+        const stored = await getSourceContent(workspaceId, sourceId);
+        if (!stored?.source) {
+          throw new NonRetriableError("Website source is missing content");
+        }
+        return persistChunks(sourceId, chunkText(stored.source));
+      });
 
-      await step.run("save", () =>
-        completeSource(workspaceId, sourceId, {
-          source: scraped.markdown,
-          url: scraped.sourceUrl,
+      await step.run("save", async () => {
+        await completeSource(workspaceId, sourceId, {
+          url: saved.sourceUrl,
           metadata: {
             ...metadataRecord(source.metadata),
-            importedFrom: scraped.sourceUrl,
+            importedFrom: saved.sourceUrl,
           },
-        }),
-      );
+        });
+        return { sourceUrl: saved.sourceUrl };
+      });
 
-      return { sourceUrl: scraped.sourceUrl };
+      return { sourceUrl: saved.sourceUrl };
     }
 
     if (source.type === SourceType.YOUTUBE) {
@@ -181,9 +252,22 @@ export const processSource = inngest.createFunction(
       }
 
       const url = source.url;
-      const transcript = await step.run("fetch-transcript", async () => {
+      const saved = await step.run("fetch-transcript", async () => {
         try {
-          return await fetchYoutubeTranscript(url);
+          const transcript = await fetchYoutubeTranscript(url);
+          await saveSourceExtract(workspaceId, sourceId, {
+            source: transcript.text,
+            url: transcript.sourceUrl,
+            metadata: {
+              ...metadataRecord(source.metadata),
+              importedFrom: transcript.sourceUrl,
+              videoId: transcript.videoId,
+            },
+          });
+          return {
+            sourceUrl: transcript.sourceUrl,
+            videoId: transcript.videoId,
+          };
         } catch (error) {
           if (error instanceof EmptyYoutubeError) {
             throw new NonRetriableError(error.message, { cause: error });
@@ -192,37 +276,46 @@ export const processSource = inngest.createFunction(
         }
       });
 
-      await step.run("chunk", () =>
-        persistChunks(sourceId, chunkText(transcript.text)),
-      );
+      await step.run("chunk", async () => {
+        const stored = await getSourceContent(workspaceId, sourceId);
+        if (!stored?.source) {
+          throw new NonRetriableError("YouTube source is missing content");
+        }
+        return persistChunks(sourceId, chunkText(stored.source));
+      });
 
-      await step.run("save", () =>
-        completeSource(workspaceId, sourceId, {
-          source: transcript.text,
-          url: transcript.sourceUrl,
+      await step.run("save", async () => {
+        await completeSource(workspaceId, sourceId, {
+          url: saved.sourceUrl,
           metadata: {
             ...metadataRecord(source.metadata),
-            importedFrom: transcript.sourceUrl,
-            videoId: transcript.videoId,
+            importedFrom: saved.sourceUrl,
+            videoId: saved.videoId,
           },
-        }),
-      );
+        });
+        return { sourceUrl: saved.sourceUrl };
+      });
 
-      return { sourceUrl: transcript.sourceUrl };
+      return { sourceUrl: saved.sourceUrl };
     }
 
     if (
       source.type === SourceType.TEXT ||
       source.type === SourceType.MARKDOWN
     ) {
-      const text = source.source;
-      if (!text) {
-        throw new NonRetriableError(`${source.type} source is missing content`);
-      }
-      await step.run("chunk", () => persistChunks(sourceId, chunkText(text)));
-      await step.run("complete-existing", () =>
-        completeSource(workspaceId, sourceId, {}),
-      );
+      await step.run("chunk", async () => {
+        const stored = await getSourceContent(workspaceId, sourceId);
+        if (!stored?.source) {
+          throw new NonRetriableError(
+            `${source.type} source is missing content`,
+          );
+        }
+        return persistChunks(sourceId, chunkText(stored.source));
+      });
+      await step.run("complete-existing", async () => {
+        await completeSource(workspaceId, sourceId, {});
+        return { completed: true };
+      });
       return { skippedExtract: true };
     }
 

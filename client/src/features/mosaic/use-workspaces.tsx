@@ -8,7 +8,9 @@ import type {
   ChatModel,
   CreateSourceBody,
   Workspace,
+  WorkspaceChat,
   WorkspaceDetails,
+  WorkspaceSource,
   WorkspaceSummary,
 } from "@/services/mosaic";
 
@@ -33,6 +35,18 @@ function asDetails(workspace: Workspace): WorkspaceDetails {
 
 function summaryOf(workspace: Workspace): WorkspaceSummary {
   return { id: workspace.id, name: workspace.name, ownerId: workspace.ownerId };
+}
+
+function mergeSources(local: WorkspaceSource[], remote: WorkspaceSource[]) {
+  const seen = new Set(remote.map((item) => item.id));
+  const extras = local.filter((item) => !seen.has(item.id));
+  return extras.length ? [...extras, ...remote] : remote;
+}
+
+function mergeChats(local: WorkspaceChat[], remote: WorkspaceChat[]) {
+  const seen = new Set(remote.map((item) => item.id));
+  const extras = local.filter((item) => !seen.has(item.id));
+  return extras.length ? [...extras, ...remote] : remote;
 }
 
 function messageOf(cause: unknown, fallback: string) {
@@ -109,9 +123,14 @@ type WorkspaceContextValue = {
   remove: () => Promise<string>;
   importPdf: (file: File, title: string) => Promise<void>;
   importWebsite: (url: string, title: string) => Promise<void>;
+  importYouTube: (url: string, title: string) => Promise<void>;
   createNote: (input: CreateSourceBody) => Promise<void>;
   deleteSources: (ids: string[]) => Promise<void>;
+  reprocessSources: (ids: string[]) => Promise<void>;
   refreshSources: () => Promise<void>;
+  placeChat: (chat: WorkspaceChat) => void;
+  removeChat: (chatId: string) => void;
+  replaceChats: (chats: WorkspaceChat[]) => void;
   reload: () => Promise<void>;
   reopen: () => Promise<void>;
 };
@@ -391,6 +410,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }));
   }
 
+  async function importYouTube(url: string, title: string) {
+    const id = requireWorkspace();
+    const source = await MOSAIC.importYouTube(id, { url, title });
+    patch(id, (workspace) => ({
+      ...workspace,
+      sources: [source, ...workspace.sources.filter((item) => item.id !== source.id)],
+    }));
+  }
+
   async function createNote(input: CreateSourceBody) {
     const id = requireWorkspace();
     const source = await MOSAIC.createSource(id, input);
@@ -413,7 +441,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (cause) {
       try {
         const sources = await MOSAIC.listSources(id);
-        patch(id, (workspace) => ({ ...workspace, sources }));
+        patch(id, (workspace) => ({
+          ...workspace,
+          sources: mergeSources(workspace.sources, sources),
+        }));
       } catch {
         // Keep the list we already have. The thrown error is what the panel shows.
       }
@@ -421,13 +452,99 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function reprocessSources(ids: string[]) {
+    const id = requireWorkspace();
+    if (ids.length === 0) return;
+    await MOSAIC.reprocessSources(id, ids);
+    const marked = new Set(ids);
+    patch(id, (workspace) => ({
+      ...workspace,
+      sources: workspace.sources.map((source) =>
+        marked.has(source.id) ? { ...source, status: "PENDING", error: null } : source,
+      ),
+    }));
+  }
+
   async function refreshSources() {
     const id = requireWorkspace();
     const sources = await MOSAIC.listSources(id);
-    patch(id, (workspace) => ({ ...workspace, sources }));
+    patch(id, (workspace) => ({
+      ...workspace,
+      sources: mergeSources(workspace.sources, sources),
+    }));
   }
 
+  const placeChat = useCallback(
+    (chat: WorkspaceChat) => {
+      if (!routeId) return;
+      patch(routeId, (workspace) => ({
+        ...workspace,
+        chats: [chat, ...workspace.chats.filter((item) => item.id !== chat.id)],
+      }));
+    },
+    [patch, routeId],
+  );
+
+  const removeChat = useCallback(
+    (chatId: string) => {
+      if (!routeId) return;
+      patch(routeId, (workspace) => ({
+        ...workspace,
+        chats: workspace.chats.filter((item) => item.id !== chatId),
+      }));
+    },
+    [patch, routeId],
+  );
+
+  const replaceChats = useCallback(
+    (chats: WorkspaceChat[]) => {
+      if (!routeId) return;
+      patch(routeId, (workspace) => ({
+        ...workspace,
+        chats: mergeChats(workspace.chats, chats),
+      }));
+    },
+    [patch, routeId],
+  );
+
   const active = routeId ? (details[routeId] ?? null) : null;
+  const ingesting =
+    active?.sources.some((source) => source.status === "PENDING" || source.status === "PROCESSING") ??
+    false;
+
+  useEffect(() => {
+    if (!routeId || !ingesting) return;
+    let stopped = false;
+    let timer = 0;
+    const tick = () => {
+      timer = window.setTimeout(() => {
+        if (stopped) return;
+        if (document.hidden) {
+          tick();
+          return;
+        }
+        void MOSAIC.listSources(routeId)
+          .then((sources) => {
+            if (stopped) return;
+            patch(routeId, (workspace) => ({
+              ...workspace,
+              sources: mergeSources(workspace.sources, sources),
+            }));
+          })
+          .catch((cause: unknown) => {
+            if (!isAbort(cause)) return;
+          })
+          .finally(() => {
+            if (!stopped) tick();
+          });
+      }, 4000);
+    };
+    tick();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [ingesting, patch, routeId]);
 
   return (
     <WorkspaceContext.Provider
@@ -449,9 +566,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         remove,
         importPdf,
         importWebsite,
+        importYouTube,
         createNote,
         deleteSources,
+        reprocessSources,
         refreshSources,
+        placeChat,
+        removeChat,
+        replaceChats,
         reload,
         reopen,
       }}

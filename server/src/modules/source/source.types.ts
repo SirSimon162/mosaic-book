@@ -22,6 +22,7 @@ export const publicSourceSchema = z.object({
   title: z.string(),
   type: sourceTypeSchema,
   status: sourceStatusSchema,
+  error: z.string().nullable(),
 });
 
 export const publicSourceDetailSchema = publicSourceSchema.extend({

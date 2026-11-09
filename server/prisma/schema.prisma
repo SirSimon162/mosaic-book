@@ -99,6 +99,7 @@ model Source {
   type        SourceType
   title       String        @default("My Mosaic")
   status      SourceStatus  @default(PENDING)
+  error       String?
   chunks      SourceChunk[]
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt

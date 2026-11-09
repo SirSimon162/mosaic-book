@@ -67,6 +67,7 @@ export const publicWorkspaceSchema = z.object({
       title: z.string(),
       type: z.enum(SourceType),
       status: z.enum(SourceStatus),
+      error: z.string().nullable(),
     }),
   ),
   chats: z.array(

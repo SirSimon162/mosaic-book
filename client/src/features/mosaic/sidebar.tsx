@@ -31,6 +31,7 @@ export function Sidebar({
   error,
   onMode,
   onChat,
+  onNewChat,
   onWorkspace,
   onCreate,
   onRename,
@@ -51,6 +52,7 @@ export function Sidebar({
   error: string;
   onMode: (mode: Mode) => void;
   onChat: (id: string) => void;
+  onNewChat: () => void;
   onWorkspace: (id: string) => void;
   onCreate: (name: string) => Promise<void>;
   onRename: (name: string) => Promise<void>;
@@ -196,7 +198,19 @@ export function Sidebar({
       </div>
 
       <div className="mt-4 flex min-h-0 flex-1 flex-col px-3 pb-3">
-        <p className="px-2 font-tertiary text-[10px] tracking-[0.16em] text-secondary">RECENT</p>
+        <div className="mb-2 flex items-center justify-between px-2">
+          <p className="font-tertiary text-[10px] tracking-[0.16em] text-secondary">RECENT</p>
+          <button
+            type="button"
+            onClick={() => {
+              onNewChat();
+              collapse();
+            }}
+            className="rounded-lg px-2 py-1 text-sm text-secondary hover:text-primary"
+          >
+            New
+          </button>
+        </div>
         <ul className="mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto">
           {chats.length === 0 && (
             <li className="px-2 py-2 text-sm text-secondary">No chats yet.</li>

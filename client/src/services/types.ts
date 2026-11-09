@@ -49,6 +49,7 @@ export type WorkspaceSource = {
   title: string;
   type: SourceType;
   status: SourceStatus;
+  error: string | null;
 };
 
 export type SourceDetail = WorkspaceSource & {
@@ -106,6 +107,46 @@ export type ImportWebsiteBody = {
   url: string;
   title: string;
 };
+
+export type ImportYouTubeBody = {
+  url: string;
+  title: string;
+};
+
+export type Citation = {
+  chunkId: string;
+  sourceId: string;
+  sourceTitle: string;
+  index: number;
+  page: number | null;
+  snippet: string;
+  score: number;
+};
+
+export type ChatMessageRecord = {
+  id: string;
+  role: "USER" | "ASSISTANT";
+  content: string;
+  citations: Citation[] | null;
+  createdAt: string;
+};
+
+export type ChatRecord = {
+  id: string;
+  title: string;
+  updatedAt: string;
+};
+
+export type ChatDetail = ChatRecord & {
+  messages: ChatMessageRecord[];
+};
+
+export type ChatStreamEvent =
+  | { type: "user"; message: ChatMessageRecord }
+  | { type: "citations"; citations: Citation[] }
+  | { type: "token"; text: string }
+  | { type: "done"; message: ChatMessageRecord }
+  | { type: "error"; message: string };
 
 export type ListSourcesQuery = {
   q?: string;

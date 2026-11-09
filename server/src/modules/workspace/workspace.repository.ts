@@ -169,6 +169,7 @@ export async function getWorkspaceById(workspaceId: string, userId: string) {
           title: true,
           type: true,
           status: true,
+          error: true,
         },
         orderBy: {
           updatedAt: "desc",

@@ -29,6 +29,7 @@ export async function getSourcesByWorkspaceId(
       title: true,
       type: true,
       status: true,
+      error: true,
     },
     orderBy: {
       updatedAt: "desc",
@@ -54,6 +55,7 @@ export async function createSourceInWorkspace(
       title: true,
       type: true,
       status: true,
+      error: true,
     },
   });
   return source;
@@ -80,6 +82,7 @@ export async function createWebsiteSourceInWorkspace(
       title: true,
       type: true,
       status: true,
+      error: true,
     },
   });
   return source;
@@ -107,6 +110,7 @@ export async function createYoutubeSourceInWorkspace(
       title: true,
       type: true,
       status: true,
+      error: true,
     },
   });
   return source;
@@ -131,9 +135,21 @@ export async function createPdfSourceInWorkspace(
       title: true,
       type: true,
       status: true,
+      error: true,
     },
   });
   return source;
+}
+
+function metadataForClient(metadata: Prisma.JsonValue | null) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return metadata;
+  }
+  if (!("pages" in metadata)) {
+    return metadata;
+  }
+  const { pages: _pages, ...rest } = metadata;
+  return rest;
 }
 
 export async function getSource(workspaceId: string, sourceId: string) {
@@ -147,13 +163,74 @@ export async function getSource(workspaceId: string, sourceId: string) {
       title: true,
       type: true,
       status: true,
+      error: true,
       source: true,
       url: true,
       fileUrl: true,
       metadata: true,
     },
   });
-  return source;
+  if (!source) {
+    return null;
+  }
+  return { ...source, metadata: metadataForClient(source.metadata) };
+}
+
+export async function getSourceJobState(workspaceId: string, sourceId: string) {
+  const source = await prisma.source.findFirst({
+    where: { workspaceId, id: sourceId },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      fileUrl: true,
+      url: true,
+      metadata: true,
+    },
+  });
+  if (!source) {
+    return null;
+  }
+  return { ...source, metadata: metadataForClient(source.metadata) };
+}
+
+export async function getSourceContent(workspaceId: string, sourceId: string) {
+  return prisma.source.findFirst({
+    where: { workspaceId, id: sourceId },
+    select: { source: true, metadata: true },
+  });
+}
+
+export async function saveSourceExtract(
+  workspaceId: string,
+  sourceId: string,
+  data: {
+    source: string;
+    url?: string;
+    metadata?: Prisma.InputJsonValue;
+  },
+) {
+  await prisma.source.update({
+    where: { id: sourceId, workspaceId },
+    data: {
+      source: data.source,
+      ...(data.url !== undefined ? { url: data.url } : {}),
+      ...(data.metadata !== undefined ? { metadata: data.metadata } : {}),
+    },
+    select: { id: true },
+  });
+}
+
+export async function updateSourceMetadata(
+  workspaceId: string,
+  sourceId: string,
+  metadata: Prisma.InputJsonValue,
+) {
+  await prisma.source.update({
+    where: { id: sourceId, workspaceId },
+    data: { metadata },
+    select: { id: true },
+  });
 }
 
 export async function updateSourceStatus(
@@ -163,15 +240,8 @@ export async function updateSourceStatus(
 ) {
   return prisma.source.update({
     where: { id: sourceId, workspaceId },
-    data: { status },
-    select: {
-      id: true,
-      type: true,
-      status: true,
-      source: true,
-      fileUrl: true,
-      metadata: true,
-    },
+    data: { status, error: null },
+    select: { id: true, status: true },
   });
 }
 
@@ -188,17 +258,23 @@ export async function completeSource(
     where: { id: sourceId, workspaceId },
     data: {
       status: SourceStatus.COMPLETED,
+      error: null,
       ...(data.source !== undefined ? { source: data.source } : {}),
       ...(data.url !== undefined ? { url: data.url } : {}),
       ...(data.metadata !== undefined ? { metadata: data.metadata } : {}),
     },
+    select: { id: true },
   });
 }
 
-export async function failSource(workspaceId: string, sourceId: string) {
+export async function failSource(
+  workspaceId: string,
+  sourceId: string,
+  error: string,
+) {
   return prisma.source.update({
     where: { id: sourceId, workspaceId },
-    data: { status: SourceStatus.FAILED },
+    data: { status: SourceStatus.FAILED, error },
   });
 }
 
@@ -234,7 +310,7 @@ export async function resetSourcesForReprocess(
 ) {
   return prisma.source.updateMany({
     where: { workspaceId, id: { in: sourceIds } },
-    data: { status: SourceStatus.PENDING },
+    data: { status: SourceStatus.PENDING, error: null },
   });
 }
 

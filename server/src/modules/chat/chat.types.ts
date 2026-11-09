@@ -24,6 +24,7 @@ export const createMessageSchema = z.object({
     .trim()
     .min(1, "Content is required")
     .max(8000, "Content must be at most 8000 characters"),
+  sourceIds: z.array(z.uuid()).max(50).optional(),
 });
 
 export const publicMessageSchema = z.object({

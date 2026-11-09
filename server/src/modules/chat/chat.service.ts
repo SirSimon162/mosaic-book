@@ -140,6 +140,7 @@ export async function* streamChatReply(
 
   const hits = await searchWorkspaceSources(workspaceId, {
     query: data.content,
+    ...(data.sourceIds !== undefined ? { sourceIds: data.sourceIds } : {}),
   });
   if (isAborted()) {
     return;

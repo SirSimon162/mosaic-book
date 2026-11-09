@@ -14,6 +14,7 @@ const corsOptions: CorsOptions = {
 };
 
 app.use(cors(corsOptions));
+app.use("/api/inngest", express.json({ limit: "10mb" }));
 app.use(express.json());
 
 app.use(cookieParser());

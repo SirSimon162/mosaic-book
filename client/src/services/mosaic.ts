@@ -1,9 +1,15 @@
-import { request, withQuery } from "./api";
+import { request, serverEvents, withQuery } from "./api";
 import type {
+  ChatDetail,
+  ChatMessageRecord,
   ChatModel,
+  ChatRecord,
+  ChatStreamEvent,
+  Citation,
   CreateSourceBody,
   CreateWorkspaceBody,
   ImportWebsiteBody,
+  ImportYouTubeBody,
   ListSourcesQuery,
   LoginBody,
   RegisterBody,
@@ -17,8 +23,29 @@ import type {
 } from "./types";
 
 const PAGE_SIZE = 50;
-const BULK_DELETE_LIMIT = 10;
+const BULK_LIMIT = 10;
 const DEFAULT_MODEL: ChatModel = "gpt-4o-mini";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isMessage(value: unknown): value is ChatMessageRecord {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    typeof value.content === "string" &&
+    (value.role === "USER" || value.role === "ASSISTANT")
+  );
+}
+
+function asCitations(value: unknown): Citation[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Citation => {
+    if (!isRecord(item)) return false;
+    return typeof item.chunkId === "string" && typeof item.sourceTitle === "string" && typeof item.snippet === "string";
+  });
+}
 
 let sessionRequest: Promise<SessionUser | null> | null = null;
 
@@ -112,6 +139,13 @@ export const MOSAIC = {
     });
   },
 
+  importYouTube(workspaceId: string, input: ImportYouTubeBody) {
+    return request<WorkspaceSource>(workspacePath(workspaceId, "/source/import/youtube"), {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
   importPdf(workspaceId: string, file: File, title: string) {
     const body = new FormData();
     body.append("file", file);
@@ -145,21 +179,96 @@ export const MOSAIC = {
       await this.deleteSource(workspaceId, sourceId);
       return;
     }
-    for (let index = 0; index < unique.length; index += BULK_DELETE_LIMIT) {
+    for (let index = 0; index < unique.length; index += BULK_LIMIT) {
       await request<null>(workspacePath(workspaceId, "/source/bulk-delete"), {
         method: "POST",
-        body: JSON.stringify({ sourceIds: unique.slice(index, index + BULK_DELETE_LIMIT) }),
+        body: JSON.stringify({ sourceIds: unique.slice(index, index + BULK_LIMIT) }),
       });
+    }
+  },
+
+  async reprocessSources(workspaceId: string, sourceIds: string[]) {
+    const unique = [...new Set(sourceIds)];
+    for (let index = 0; index < unique.length; index += BULK_LIMIT) {
+      await request<null>(workspacePath(workspaceId, "/source/reprocess"), {
+        method: "POST",
+        body: JSON.stringify({ sourceIds: unique.slice(index, index + BULK_LIMIT) }),
+      });
+    }
+  },
+
+  searchSources(
+    workspaceId: string,
+    input: { query: string; sourceIds?: string[] },
+    signal?: AbortSignal,
+  ) {
+    return request<Citation[]>(workspacePath(workspaceId, "/source/search"), {
+      method: "POST",
+      body: JSON.stringify(input),
+      signal,
+    });
+  },
+
+  listChats(workspaceId: string, signal?: AbortSignal) {
+    return request<ChatRecord[]>(workspacePath(workspaceId, "/chat"), { signal });
+  },
+
+  createChat(workspaceId: string, input: { title: string }) {
+    return request<ChatRecord>(workspacePath(workspaceId, "/chat"), {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  getChat(workspaceId: string, chatId: string, signal?: AbortSignal) {
+    return request<ChatDetail>(
+      workspacePath(workspaceId, `/chat/${encodeURIComponent(chatId)}`),
+      { signal },
+    );
+  },
+
+  deleteChat(workspaceId: string, chatId: string) {
+    return request<null>(workspacePath(workspaceId, `/chat/${encodeURIComponent(chatId)}`), {
+      method: "DELETE",
+    });
+  },
+
+  async *streamReply(
+    workspaceId: string,
+    chatId: string,
+    input: { content: string; sourceIds?: string[] },
+    signal?: AbortSignal,
+  ): AsyncGenerator<ChatStreamEvent> {
+    const path = workspacePath(workspaceId, `/chat/${encodeURIComponent(chatId)}/messages`);
+    for await (const item of serverEvents(path, { body: JSON.stringify(input), signal })) {
+      const data = item.data;
+      if (item.event === "user" && isRecord(data) && isMessage(data.message)) {
+        yield { type: "user", message: data.message };
+      } else if (item.event === "citations" && isRecord(data)) {
+        yield { type: "citations", citations: asCitations(data.citations) };
+      } else if (item.event === "token" && isRecord(data) && typeof data.text === "string") {
+        yield { type: "token", text: data.text };
+      } else if (item.event === "done" && isRecord(data) && isMessage(data.message)) {
+        yield { type: "done", message: data.message };
+      } else if (item.event === "error" && isRecord(data) && typeof data.message === "string") {
+        yield { type: "error", message: data.message };
+      }
     }
   },
 };
 
 export type {
   ArtifactType,
+  ChatDetail,
+  ChatMessageRecord,
   ChatModel,
+  ChatRecord,
+  ChatStreamEvent,
+  Citation,
   CreateSourceBody,
   CreateWorkspaceBody,
   ImportWebsiteBody,
+  ImportYouTubeBody,
   ListSourcesQuery,
   LoginBody,
   RegisterBody,

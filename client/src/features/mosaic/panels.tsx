@@ -6,13 +6,14 @@ import { isAbort } from "@/services/api";
 import { MOSAIC } from "@/services/mosaic";
 import type {
   ArtifactType,
+  ChatMessageRecord,
+  Citation,
   SourceDetail,
   SourceStatus,
   SourceType,
   WorkspaceArtifact,
   WorkspaceSource,
 } from "@/services/mosaic";
-import { type ChatMessage, type ChatThread } from "./data";
 
 const kindLabel: Record<SourceType, string> = {
   TEXT: "Notes",
@@ -49,7 +50,10 @@ const typeFilters: { value: "" | SourceType; label: string }[] = [
 
 const MAX_PDF_BYTES = 50 * 1024 * 1024;
 
-type Busy = "file" | "url" | "note" | "delete" | "refresh";
+type Busy = "file" | "url" | "note" | "delete" | "refresh" | "reprocess" | "passage";
+
+const YOUTUBE_ID =
+  /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([\w-]{11})/i;
 
 function failureMessage(cause: unknown, fallback: string) {
   if (isAbort(cause)) return "";
@@ -71,10 +75,18 @@ function pdfProblem(file: File) {
   return "";
 }
 
-function websiteLink(value: string) {
+function materialLink(value: string) {
+  const trimmed = value.trim();
+  if (/^[\w-]{11}$/.test(trimmed)) {
+    return {
+      kind: "youtube" as const,
+      url: `https://www.youtube.com/watch?v=${trimmed}`,
+      title: `YouTube ${trimmed}`,
+    };
+  }
   let parsed: URL;
   try {
-    parsed = new URL(value.trim());
+    parsed = new URL(trimmed);
   } catch {
     throw new Error("Enter a full link, including https://");
   }
@@ -82,17 +94,19 @@ function websiteLink(value: string) {
     throw new Error("Enter a full link, including https://");
   }
   const host = parsed.hostname.toLowerCase();
-  if (
+  const youtube =
     host === "youtu.be" ||
     host === "youtube.com" ||
     host.endsWith(".youtube.com") ||
-    host.endsWith("youtube-nocookie.com")
-  ) {
-    throw new Error("YouTube import is still in progress. Paste a website link.");
+    host.endsWith("youtube-nocookie.com");
+  if (youtube) {
+    const videoId = trimmed.match(YOUTUBE_ID)?.[1];
+    if (!videoId) throw new Error("That YouTube link needs a video id.");
+    return { kind: "youtube" as const, url: parsed.toString(), title: `YouTube ${videoId}` };
   }
   const path = parsed.pathname === "/" ? "" : parsed.pathname;
   const title = `${parsed.hostname.replace(/^www\./, "")}${path}`.replace(/\/$/, "").slice(0, 200);
-  return { url: parsed.toString(), title: title || "Website" };
+  return { kind: "website" as const, url: parsed.toString(), title: title || "Website" };
 }
 
 function safeHttp(value: string | null) {
@@ -127,16 +141,20 @@ export function UploadPanel({
   sources,
   onPdf,
   onWebsite,
+  onYouTube,
   onNote,
   onDelete,
+  onReprocess,
   onRefresh,
 }: {
   workspaceId: string;
   sources: WorkspaceSource[];
   onPdf: (file: File, title: string) => Promise<void>;
   onWebsite: (url: string, title: string) => Promise<void>;
+  onYouTube: (url: string, title: string) => Promise<void>;
   onNote: (input: { type: "TEXT" | "MARKDOWN"; title: string; content: string }) => Promise<void>;
   onDelete: (ids: string[]) => Promise<void>;
+  onReprocess: (ids: string[]) => Promise<void>;
   onRefresh: () => Promise<void>;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -169,6 +187,9 @@ export function UploadPanel({
   const [busy, setBusy] = useState<Busy | null>(null);
   const [progress, setProgress] = useState("");
   const [notice, setNotice] = useState("");
+  const [passage, setPassage] = useState("");
+  const [hits, setHits] = useState<Citation[]>([]);
+  const passageAbort = useRef<AbortController | null>(null);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -274,20 +295,21 @@ export function UploadPanel({
     event.preventDefault();
     if (locked) return;
     setNotice("");
-    let link: { url: string; title: string };
+    let link: ReturnType<typeof materialLink>;
     try {
-      link = websiteLink(url);
+      link = materialLink(url);
     } catch (cause) {
       setNotice(failureMessage(cause, "Enter a full link, including https://"));
       return;
     }
     setBusy("url");
     try {
-      await onWebsite(link.url, link.title);
+      if (link.kind === "youtube") await onYouTube(link.url, link.title);
+      else await onWebsite(link.url, link.title);
       setUrl("");
       invalidateSearch();
     } catch (cause) {
-      setNotice(failureMessage(cause, "Could not import that site"));
+      setNotice(failureMessage(cause, "Could not import that link"));
     } finally {
       setBusy(null);
     }
@@ -336,6 +358,45 @@ export function UploadPanel({
     }
   }
 
+  async function reprocess(ids: string[]) {
+    if (locked || ids.length === 0) return;
+    setBusy("reprocess");
+    setNotice("");
+    try {
+      await onReprocess(ids);
+      setSelected((current) => {
+        const next = new Set(current);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+    } catch (cause) {
+      setNotice(failureMessage(cause, "Could not process those sources again"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function findPassage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const queryText = passage.trim().slice(0, 8000);
+    if (!queryText || locked) return;
+    passageAbort.current?.abort();
+    const controller = new AbortController();
+    passageAbort.current = controller;
+    setBusy("passage");
+    setNotice("");
+    try {
+      const next = await MOSAIC.searchSources(workspaceId, { query: queryText }, controller.signal);
+      if (!controller.signal.aborted) setHits(next);
+    } catch (cause) {
+      if (!isAbort(cause)) setNotice(failureMessage(cause, "Could not search these sources"));
+    } finally {
+      if (passageAbort.current === controller) {
+        passageAbort.current = null;
+        setBusy(null);
+      }
+    }
+  }
   async function refresh() {
     if (locked) return;
     setBusy("refresh");
@@ -366,7 +427,7 @@ export function UploadPanel({
       <p className="font-tertiary text-[11px] tracking-[0.16em] text-secondary">SOURCES</p>
       <h1 className="mt-2 font-secondary text-4xl tracking-tight">Add material</h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-secondary">
-        A PDF, a site, or a note. It stays in this workspace and can be cited later.
+        A PDF, a site, a video, or a note. It stays in this workspace and can be cited later.
       </p>
 
       <label
@@ -390,7 +451,7 @@ export function UploadPanel({
         <input
           value={url}
           onChange={(event) => setUrl(event.target.value)}
-          placeholder="Paste a site link"
+          placeholder="Paste a site or a YouTube link"
           disabled={locked}
           className="min-w-0 flex-1 rounded-lg border border-primary bg-secondary px-3 py-2.5 text-sm text-primary outline-none focus:border-accent disabled:opacity-60"
         />
@@ -484,21 +545,63 @@ export function UploadPanel({
           {busy === "refresh" ? "Refreshing" : "Refresh"}
         </button>
       </div>
-      {searching && <p className="mt-2 text-sm text-secondary">Searching</p>}
+      {searching && <p className="mt-2 text-sm text-secondary">Searching titles</p>}
       {selectedCount > 0 && (
         <div className="mt-3 flex items-center justify-between gap-3">
           <p className="text-sm text-secondary">{selectedCount} selected</p>
-          <button
-            type="button"
-            onClick={() =>
-              void remove(visible.filter((source) => selected.has(source.id)).map((source) => source.id))
-            }
-            disabled={locked}
-            className="rounded-lg bg-accent px-3 py-2 text-sm text-on-accent disabled:opacity-60"
-          >
-            {busy === "delete" ? "Removing" : "Remove"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                void reprocess(visible.filter((source) => selected.has(source.id)).map((source) => source.id))
+              }
+              disabled={locked}
+              className="rounded-lg border border-primary px-3 py-2 text-sm text-primary disabled:opacity-60"
+            >
+              {busy === "reprocess" ? "Processing" : "Process again"}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void remove(visible.filter((source) => selected.has(source.id)).map((source) => source.id))
+              }
+              disabled={locked}
+              className="rounded-lg bg-accent px-3 py-2 text-sm text-on-accent disabled:opacity-60"
+            >
+              {busy === "delete" ? "Removing" : "Remove"}
+            </button>
+          </div>
         </div>
+      )}
+
+      <form onSubmit={(event) => void findPassage(event)} className="mt-4 flex gap-2">
+        <input
+          value={passage}
+          onChange={(event) => setPassage(event.target.value)}
+          maxLength={8000}
+          placeholder="Find a passage in the indexed sources"
+          disabled={locked}
+          className="min-w-0 flex-1 rounded-lg border border-primary bg-secondary px-3 py-2 text-sm text-primary outline-none focus:border-accent disabled:opacity-60"
+        />
+        <button
+          type="submit"
+          disabled={locked}
+          className="rounded-lg bg-accent px-3 text-sm text-on-accent disabled:opacity-60"
+        >
+          {busy === "passage" ? "Finding" : "Find"}
+        </button>
+      </form>
+      {hits.length > 0 && (
+        <ul className="mt-3 space-y-2">
+          {hits.map((hit) => (
+            <li key={hit.chunkId} className="rounded-xl border border-primary bg-secondary px-4 py-3">
+              <p className="font-tertiary text-[10px] tracking-[0.12em] text-accent">
+                {hit.page ? `${hit.sourceTitle.toUpperCase()} · P.${hit.page}` : hit.sourceTitle.toUpperCase()}
+              </p>
+              <p className="mt-1 line-clamp-3 text-sm text-primary">{hit.snippet}</p>
+            </li>
+          ))}
+        </ul>
       )}
 
       <ul className="mt-4 divide-y divide-primary overflow-hidden rounded-2xl border border-primary bg-secondary">
@@ -537,6 +640,9 @@ export function UploadPanel({
                   <p className="mt-0.5 font-tertiary text-[10px] tracking-[0.12em] text-secondary">
                     {kindLabel[source.type].toUpperCase()}
                   </p>
+                  {source.error && (
+                    <p className="mt-1 line-clamp-2 text-xs text-secondary">{source.error}</p>
+                  )}
                 </button>
                 <span
                   className={`shrink-0 rounded-full px-2 py-0.5 font-tertiary text-[10px] ${
@@ -587,59 +693,116 @@ export function UploadPanel({
   );
 }
 
+function citeLabel(hit: Citation) {
+  return hit.page ? `${hit.sourceTitle} · p.${hit.page}` : hit.sourceTitle;
+}
+
 export function ChatPanel({
-  thread,
-  extra,
+  title,
+  messages,
+  draftText,
+  liveCitations,
+  pending,
+  loading,
+  error,
   onSend,
+  onDelete,
 }: {
-  thread: ChatThread | null;
-  extra: ChatMessage[];
+  title: string;
+  messages: ChatMessageRecord[];
+  draftText: string;
+  liveCitations: Citation[];
+  pending: boolean;
+  loading: boolean;
+  error: string;
   onSend: (text: string) => void;
+  onDelete?: () => void;
 }) {
   const [draft, setDraft] = useState("");
-  const messages = [...(thread?.messages ?? []), ...extra];
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, draftText, pending]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = draft.trim();
-    if (!text) return;
+    if (!text || pending) return;
     onSend(text);
     setDraft("");
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-primary px-6 py-5 sm:px-10">
-        <p className="font-tertiary text-[11px] tracking-[0.16em] text-secondary">CHAT</p>
-        <h1 className="mt-2 font-secondary text-3xl tracking-tight">
-          {thread?.title ?? "New chat"}
-        </h1>
+      <div className="flex items-start justify-between gap-4 border-b border-primary px-6 py-5 sm:px-10">
+        <div className="min-w-0">
+          <p className="font-tertiary text-[11px] tracking-[0.16em] text-secondary">CHAT</p>
+          <h1 className="mt-2 truncate font-secondary text-3xl tracking-tight">{title}</h1>
+        </div>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={pending}
+            className="shrink-0 rounded-lg px-3 py-2 text-sm text-secondary hover:text-primary disabled:opacity-60"
+          >
+            Delete
+          </button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 sm:px-10">
-        {messages.length === 0 ? (
+        {loading ? (
+          <p className="text-sm text-secondary">Opening chat</p>
+        ) : messages.length === 0 && !draftText && !pending ? (
           <p className="max-w-md text-sm leading-relaxed text-secondary">
-            {thread
-              ? "This thread is saved on the workspace. Message history arrives with the chat API."
-              : "Questions you type stay in this tab. Replies arrive once chat is connected."}
+            Ask this workspace. The reply is grounded in the sources that have finished processing.
           </p>
         ) : (
           <ul className="mx-auto flex max-w-2xl flex-col gap-5">
-            {messages.map((message, index) => (
-              <li key={`${message.role}-${index}`} className="text-sm leading-relaxed">
+            {messages.map((message) => (
+              <li key={message.id} className="text-sm leading-relaxed">
                 <p className="font-tertiary text-[10px] tracking-[0.14em] text-secondary">
-                  {message.role === "you" ? "YOU" : "MOSAIC"}
+                  {message.role === "USER" ? "YOU" : "MOSAIC"}
                 </p>
-                <p className="mt-1 text-primary">{message.text}</p>
-                {message.cite && (
-                  <p className="mt-2 inline-block rounded-full bg-tertiary px-2 py-0.5 font-tertiary text-[10px] text-accent">
-                    {message.cite}
-                  </p>
+                <p className="mt-1 whitespace-pre-wrap text-primary">{message.content}</p>
+                {message.citations && message.citations.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {message.citations.map((hit) => (
+                      <span
+                        key={hit.chunkId}
+                        className="rounded-full bg-tertiary px-2 py-0.5 font-tertiary text-[10px] text-accent"
+                      >
+                        {citeLabel(hit)}
+                      </span>
+                    ))}
+                  </div>
                 )}
               </li>
             ))}
+            {(draftText || (pending && liveCitations.length > 0)) && (
+              <li className="text-sm leading-relaxed">
+                <p className="font-tertiary text-[10px] tracking-[0.14em] text-secondary">MOSAIC</p>
+                <p className="mt-1 whitespace-pre-wrap text-primary">{draftText || "Reading the sources"}</p>
+                {liveCitations.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {liveCitations.map((hit) => (
+                      <span
+                        key={hit.chunkId}
+                        className="rounded-full bg-tertiary px-2 py-0.5 font-tertiary text-[10px] text-accent"
+                      >
+                        {citeLabel(hit)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </li>
+            )}
           </ul>
         )}
+        {error && <p className="mx-auto mt-4 max-w-2xl text-sm text-secondary">{error}</p>}
+        <div ref={endRef} />
       </div>
 
       <form onSubmit={submit} className="border-t border-primary px-6 py-4 sm:px-10">
@@ -647,11 +810,17 @@ export function ChatPanel({
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            maxLength={8000}
             placeholder="Ask about a source"
-            className="min-w-0 flex-1 rounded-lg border border-primary bg-secondary px-3 py-2.5 text-sm text-primary outline-none focus:border-accent"
+            disabled={pending}
+            className="min-w-0 flex-1 rounded-lg border border-primary bg-secondary px-3 py-2.5 text-sm text-primary outline-none focus:border-accent disabled:opacity-60"
           />
-          <button type="submit" className="rounded-lg bg-accent px-4 text-sm text-on-accent">
-            Ask
+          <button
+            type="submit"
+            disabled={pending}
+            className="rounded-lg bg-accent px-4 text-sm text-on-accent disabled:opacity-60"
+          >
+            {pending ? "Asking" : "Ask"}
           </button>
         </div>
       </form>

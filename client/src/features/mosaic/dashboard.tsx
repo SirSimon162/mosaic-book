@@ -3,9 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useSession } from "@/features/auth/session";
-import { type ChatMessage, type Mode } from "./data";
+import { type Mode } from "./data";
 import { ChatPanel, LearnPanel, UploadPanel } from "./panels";
 import { Sidebar } from "./sidebar";
+import { useWorkspaceChat } from "./use-chat";
 import { useWorkspaces } from "./use-workspaces";
 
 export function Dashboard({ workspaceId }: { workspaceId: string }) {
@@ -13,74 +14,56 @@ export function Dashboard({ workspaceId }: { workspaceId: string }) {
   const session = useSession();
   const desk = useWorkspaces();
   const [mode, setMode] = useState<Mode>("chat");
-  const [chatId, setChatId] = useState<string | null>(null);
-  const [notes, setNotes] = useState<Record<string, ChatMessage[]>>({});
+  const chat = useWorkspaceChat(workspaceId, mode === "chat");
 
   const ownerId =
     desk.workspaces.find((item) => item.id === workspaceId)?.ownerId ?? desk.active?.ownerId;
   const canManage = Boolean(session.user && ownerId && session.user.id === ownerId);
-
-  function chooseMode(next: Mode) {
-    setMode(next);
-    if (next === "chat") setChatId(null);
-  }
+  const thread = desk.active?.chats.find((item) => item.id === chat.chatId) ?? null;
 
   function openChat(id: string) {
     setMode("chat");
-    setChatId(id);
+    chat.open(id);
+  }
+
+  function startChat() {
+    setMode("chat");
+    chat.startNew();
   }
 
   function chooseWorkspace(id: string) {
     if (id === workspaceId) return;
-    setChatId(null);
-    setNotes({});
     router.push(`/mosaic/${id}`);
   }
 
   async function createWorkspace(name: string) {
     const id = await desk.create(name);
-    setChatId(null);
-    setNotes({});
     router.push(`/mosaic/${id}`);
   }
 
   async function removeWorkspace() {
     const next = await desk.remove();
-    setChatId(null);
-    setNotes({});
     router.push(`/mosaic/${next}`);
   }
-
-  function send(text: string) {
-    const id = chatId ?? "draft";
-    if (!chatId) setChatId("draft");
-    setNotes((current) => ({
-      ...current,
-      [id]: [...(current[id] ?? []), { role: "you", text }],
-    }));
-  }
-
-  const chats = desk.active?.chats ?? [];
-  const selected = chats.find((item) => item.id === chatId) ?? null;
-  const thread = selected ? { id: selected.id, title: selected.title, when: "", messages: [] } : null;
 
   return (
     <div className="flex h-full min-h-0 bg-primary text-primary">
       <Sidebar
         mode={mode}
-        chatId={chatId}
+        chatId={chat.chatId}
         workspaces={desk.workspaces}
         activeId={workspaceId}
         name={desk.name}
         model={desk.active?.defaultModel ?? "gpt-4o-mini"}
-        chats={chats}
+        chats={desk.active?.chats ?? []}
         creating={desk.creating}
         saving={desk.saving}
         removing={desk.removing}
         canManage={canManage}
         error={desk.error}
-        onMode={chooseMode}
+        onMode={setMode}
         onChat={openChat}
+        onNewChat={startChat}
         onWorkspace={chooseWorkspace}
         onCreate={createWorkspace}
         onRename={desk.rename}
@@ -110,13 +93,32 @@ export function Dashboard({ workspaceId }: { workspaceId: string }) {
                 sources={desk.active?.sources ?? []}
                 onPdf={desk.importPdf}
                 onWebsite={desk.importWebsite}
+                onYouTube={desk.importYouTube}
                 onNote={desk.createNote}
                 onDelete={desk.deleteSources}
+                onReprocess={desk.reprocessSources}
                 onRefresh={desk.refreshSources}
               />
             )}
             {mode === "chat" && (
-              <ChatPanel thread={thread} extra={notes[chatId ?? "draft"] ?? []} onSend={send} />
+              <ChatPanel
+                title={thread?.title ?? "New chat"}
+                messages={chat.messages}
+                draftText={chat.draftText}
+                liveCitations={chat.liveCitations}
+                pending={chat.pending}
+                loading={chat.loading}
+                error={chat.error}
+                onSend={(text) => void chat.send(text)}
+                onDelete={
+                  chat.chatId
+                    ? () => {
+                        const id = chat.chatId;
+                        if (id) void chat.remove(id);
+                      }
+                    : undefined
+                }
+              />
             )}
             {mode === "learn" && <LearnPanel key={workspaceId} artifacts={desk.active?.artifacts ?? []} />}
           </>
