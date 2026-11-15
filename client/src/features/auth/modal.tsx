@@ -179,7 +179,7 @@ export function AuthModal({
           <button
             type="submit"
             disabled={pending}
-            className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm text-on-accent disabled:opacity-60"
+            className="w-full rounded-[9px] bg-accent px-4 py-[11px] text-sm text-on-accent transition-colors duration-200 hover:bg-[var(--color-accent-hover)] disabled:opacity-60"
           >
             {pending ? "Please wait" : mode === "login" ? "Log in" : "Create account"}
           </button>

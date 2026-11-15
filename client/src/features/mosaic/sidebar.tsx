@@ -15,6 +15,7 @@ import { Brand } from "@/shared/branding/brand";
 import type { Mode } from "./data";
 import { Icon, type MosaicIconName } from "./icons";
 import { MosaicTheme } from "./theme";
+import { useToast } from "./toast";
 
 const modes: { id: Mode; label: string; icon: MosaicIconName }[] = [
   { id: "upload", label: "Upload", icon: "upload" },
@@ -324,10 +325,16 @@ function SidebarBody({
         </div>
       )}
       {leaveError && !compact && <p className="m-muted shrink-0 px-4 pt-2 text-xs">{leaveError}</p>}
-      <div className={`m-dock mt-auto px-2 ${compact ? "flex-col justify-center gap-0" : "justify-between"}`}>
-        <button type="button" onClick={() => void leave()} disabled={leaving} aria-label="Log out" className={compact ? "m-icon-btn" : "m-btn-ghost"}>
+      <div className={`m-dock mt-auto px-2 ${compact ? "flex-col justify-center gap-2" : "justify-between gap-2"}`}>
+        <button
+          type="button"
+          onClick={() => void leave()}
+          disabled={leaving}
+          aria-label="Log out"
+          className={compact ? "m-icon-btn shrink-0" : "m-btn-ghost min-w-0"}
+        >
           <Icon name="logout" size={16} />
-          {!compact && (leaving ? "Signing out" : "Log out")}
+          {!compact && <span>{leaving ? "Signing out" : "Log out"}</span>}
         </button>
         <MosaicTheme />
       </div>
@@ -374,6 +381,7 @@ function WorkspaceSwitch({
   onDelete: () => Promise<void>;
   onModel: (model: ChatModel) => Promise<void>;
 }) {
+  const toast = useToast();
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -423,20 +431,29 @@ function WorkspaceSwitch({
       return;
     }
     try {
-      if (naming === "rename") await onRename(next);
-      else await onCreate(next);
+      if (naming === "rename") {
+        await onRename(next);
+        toast.success("Workspace renamed", next);
+      } else {
+        await onCreate(next);
+        toast.success("Workspace created", next);
+      }
       dismiss();
     } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : "Could not save the workspace");
+      const message = cause instanceof Error ? cause.message : "Could not save the workspace";
+      setNotice(message);
+      toast.error(naming === "rename" ? "Rename failed" : "Could not create", message);
     }
   }
 
   async function confirmDelete() {
     try {
       await onDelete();
+      toast.success("Workspace deleted");
       dismiss();
     } catch {
       setConfirming(true);
+      toast.error("Could not delete workspace");
     }
   }
 
@@ -453,8 +470,11 @@ function WorkspaceSwitch({
       setInviteLink(`${window.location.origin}/mosaic?invite=${encodeURIComponent(created.token)}`);
       setCopied(false);
       setNotice("");
+      toast.success("Invite created", email);
     } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : "Could not create the invite");
+      const message = cause instanceof Error ? cause.message : "Could not create the invite";
+      setNotice(message);
+      toast.error("Invite failed", message);
     }
   }
 
@@ -467,9 +487,12 @@ function WorkspaceSwitch({
     }
     try {
       await onJoin(token);
+      toast.success("Joined workspace");
       dismiss();
     } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : "Could not join this workspace");
+      const message = cause instanceof Error ? cause.message : "Could not join this workspace";
+      setNotice(message);
+      toast.error("Could not join", message);
     }
   }
 
@@ -479,9 +502,11 @@ function WorkspaceSwitch({
       await navigator.clipboard.writeText(inviteLink);
       setCopied(true);
       setNotice("");
+      toast.success("Invite link copied");
     } catch {
       setCopied(false);
       setNotice("Select the link and copy it");
+      toast.info("Copy manually", "Select the link and copy it");
     }
   }
 
@@ -489,7 +514,9 @@ function WorkspaceSwitch({
     setNotice("");
     try {
       await onModel(next);
+      toast.success("Model updated", next);
     } catch {
+      toast.error("Could not update model");
       return;
     }
   }

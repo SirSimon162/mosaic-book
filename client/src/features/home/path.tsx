@@ -115,7 +115,7 @@ export function Path() {
         <p className="font-tertiary text-[11px] tracking-[0.18em] text-secondary">
           HOW AN ANSWER IS MADE
         </p>
-        <h2 className="mt-3 max-w-3xl font-secondary text-4xl tracking-tight text-balance text-primary sm:text-6xl">
+        <h2 className="mt-3 max-w-3xl font-display text-4xl tracking-tight text-balance text-primary sm:text-6xl">
           A question crosses three places.
         </h2>
 

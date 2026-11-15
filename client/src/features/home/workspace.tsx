@@ -13,7 +13,7 @@ export function Workspace() {
         <p className="font-tertiary text-[11px] tracking-[0.18em] text-[var(--color-inverse)]/50">
           THE DESK
         </p>
-        <h2 className="mt-3 max-w-3xl font-secondary text-4xl tracking-tight text-balance sm:text-6xl">
+        <h2 className="mt-3 max-w-3xl font-display text-4xl tracking-tight text-balance sm:text-6xl">
           One subject, one desk.
         </h2>
         <p className="mt-4 max-w-xl text-lg leading-relaxed text-[var(--color-inverse)]/70">
@@ -21,7 +21,7 @@ export function Workspace() {
           subject. A sheet, a video, a site, or a file.
         </p>
 
-        <div className="mt-8 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--border-inverse)]/10 bg-secondary text-primary shadow-stage-deep">
+        <div className="mt-8 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[12px] border border-[var(--border-inverse)]/10 bg-[var(--surface)] text-primary shadow-stage-deep">
           <div className="flex items-center gap-2 border-b border-primary px-4 py-3">
             <span className="live-dot size-1.5 rounded-full bg-accent" />
             <p className="font-tertiary text-[11px] tracking-[0.14em] text-secondary">

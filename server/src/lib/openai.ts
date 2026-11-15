@@ -106,7 +106,7 @@ function chatMessages(input: {
     {
       role: "system" as const,
       content:
-        "Answer only from the numbered source excerpts. If they do not contain the answer, say you could not find it in the sources. Do not use outside knowledge.",
+        "Answer only from the numbered source excerpts. If they do not contain the answer, say you could not find it in the sources. Do not use outside knowledge. Format replies in Markdown when it helps clarity: use **bold**, _italic_, `inline code`, fenced code blocks with language tags, and short lists. Keep prose readable in a chat bubble; avoid huge headings.",
     },
     ...(input.summary
       ? [

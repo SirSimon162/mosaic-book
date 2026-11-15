@@ -81,10 +81,10 @@ export function Practices() {
           return (
             <article
               key={practice.title}
-              className="flex h-full flex-col rounded-2xl border border-primary bg-secondary p-6 transition duration-200 hover:-translate-y-1 hover:border-accent"
+              className="flex h-full flex-col rounded-[10px] border border-primary bg-[var(--surface)] p-6 transition duration-200 hover:-translate-y-0.5 hover:border-accent hover:bg-[var(--surface-hover)]"
             >
               <p className="font-tertiary text-[11px] text-accent">{practice.number}</p>
-              <h2 className="mt-3 font-secondary text-3xl tracking-tight text-primary">
+              <h2 className="mt-3 font-display text-3xl tracking-tight text-primary">
                 {practice.title}
               </h2>
               <p className="mt-3 text-sm leading-relaxed text-secondary">{practice.body}</p>

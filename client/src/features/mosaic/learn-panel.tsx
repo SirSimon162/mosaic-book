@@ -13,6 +13,7 @@ import type {
   WorkspaceSource,
 } from "@/services/mosaic";
 import { Icon, type MosaicIconName } from "./icons";
+import { useToast } from "./toast";
 
 const KINDS: { type: ArtifactType; label: string; hint: string; icon: MosaicIconName }[] = [
   { type: "SUMMARY", label: "Summary", hint: "A short written overview", icon: "doc" },
@@ -90,6 +91,27 @@ function mindNode(value: unknown, depth: number): MindNode | null {
   return children.length > 0 ? { label: value.label, children } : { label: value.label };
 }
 
+/** Stable per-question shuffle so the correct choice is not always first. */
+function shuffleQuizQuestion(question: Question): Question {
+  const order = question.choices.map((_, index) => index);
+  let hash = 0;
+  for (let i = 0; i < question.question.length; i += 1) {
+    hash = (hash * 31 + question.question.charCodeAt(i)) >>> 0;
+  }
+  for (let i = order.length - 1; i > 0; i -= 1) {
+    hash = (hash * 1664525 + 1013904223) >>> 0;
+    const j = hash % (i + 1);
+    const current = order[i]!;
+    order[i] = order[j]!;
+    order[j] = current;
+  }
+  return {
+    question: question.question,
+    choices: order.map((index) => question.choices[index]!),
+    answerIndex: order.indexOf(question.answerIndex),
+  };
+}
+
 function studyOf(type: ArtifactType, content: unknown): Study | null {
   if (!isRecord(content)) return null;
   if (type === "SUMMARY" && typeof content.summary === "string" && content.summary.trim()) {
@@ -117,7 +139,7 @@ function studyOf(type: ArtifactType, content: unknown): Study | null {
       if (!Number.isInteger(question.answerIndex) || question.answerIndex < 0 || question.answerIndex >= choices.length) {
         return null;
       }
-      questions.push({ question: question.question, choices, answerIndex: question.answerIndex });
+      questions.push(shuffleQuizQuestion({ question: question.question, choices, answerIndex: question.answerIndex }));
     }
     return { kind: "quiz", questions };
   }
@@ -158,6 +180,7 @@ export function LearnPanel({
   onCreate: (type: ArtifactType, input?: { title?: string; sourceIds?: string[] }) => Promise<ArtifactDetail>;
   onLoad: (artifactId: string) => Promise<ArtifactDetail | null>;
 }) {
+  const toast = useToast();
   const [scope, setScope] = useState(workspaceId);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [kind, setKind] = useState<ArtifactType>("SUMMARY");
@@ -174,6 +197,7 @@ export function LearnPanel({
   const createTitleId = useId();
   const [errorFor, setErrorFor] = useState<string | null>(null);
   const [loadError, setLoadError] = useState("");
+  const prevArtifactStatus = useRef<Record<string, ArtifactStatus>>({});
   const finished = sources.filter((source) => source.status === "COMPLETED");
   const groups = sourceGroups
     .map((group) => ({ ...group, sources: sources.filter((source) => source.type === group.type) }))
@@ -191,6 +215,7 @@ export function LearnPanel({
     setSourcesOpen(false);
     setSourceQuery("");
     setNotice("");
+    prevArtifactStatus.current = {};
     setLoadError("");
     setErrorFor(null);
   }
@@ -263,6 +288,23 @@ export function LearnPanel({
     });
   }
 
+  useEffect(() => {
+    const prev = prevArtifactStatus.current;
+    const next: Record<string, ArtifactStatus> = {};
+    for (const item of artifacts) {
+      next[item.id] = item.status;
+      if (prev[item.id] && prev[item.id] !== item.status) {
+        const label = kindLabel[item.type];
+        if (item.status === "COMPLETED") {
+          toast.success(`${label} ready`, item.title || "Your study guide is ready");
+        } else if (item.status === "FAILED") {
+          toast.error(`${label} failed`, item.title || "Generation did not finish");
+        }
+      }
+    }
+    prevArtifactStatus.current = next;
+  }, [artifacts, toast]);
+
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || finished.length === 0) return;
@@ -277,8 +319,11 @@ export function LearnPanel({
       setTitle("");
       setCreateOpen(false);
       setReading(true);
+      toast.success(`${kindLabel[kind]} started`, "Generating from your sources");
     } catch (cause) {
-      setNotice(failureMessage(cause, "Could not start this study guide"));
+      const message = failureMessage(cause, "Could not start this study guide");
+      setNotice(message);
+      toast.error("Could not generate", message);
     } finally {
       setBusy(false);
     }
@@ -305,12 +350,12 @@ export function LearnPanel({
     .filter((group) => group.sources.length > 0);
 
   return (
-    <div className="m-page flex flex-col">
+    <div className="m-page m-learn flex w-full max-w-none flex-col">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <p className="m-kicker">LEARN</p>
           <h1 className="m-title mt-2">Study guides</h1>
-          <p className="m-muted mt-3 max-w-xl text-sm leading-relaxed">
+          <p className="m-muted mt-3 max-w-2xl text-sm leading-relaxed">
             A guide is written from sources that have finished processing. It stays on this workspace.
           </p>
         </div>
@@ -485,14 +530,14 @@ export function LearnPanel({
       </div>
       )}
 
-      <section className="m-rule mt-10 pt-8">
+      <section className="m-rule m-learn-library mt-10 w-full pt-8">
         <p className="m-kicker">SAVED</p>
         <h2 className="mt-2 text-lg tracking-tight">Guides</h2>
         {artifacts.length === 0 ? (
           <p className="m-muted mt-3 text-sm">None yet.</p>
         ) : (
-          <div className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
-            <ul className={`m-list min-w-0 ${reading ? "max-lg:hidden" : ""}`}>
+          <div className="mt-5 grid w-full items-start gap-5 lg:grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)]">
+            <ul className={`m-list m-learn-list min-w-0 ${reading ? "max-lg:hidden" : ""}`}>
               {artifacts.map((item) => {
                 const open = item.id === selectedId;
                 return (
@@ -507,7 +552,7 @@ export function LearnPanel({
                       className="m-item flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm leading-snug break-words">{item.title}</span>
+                        <span className="m-learn-title block text-sm leading-snug break-words">{item.title}</span>
                         <span className="mt-1.5 flex flex-wrap items-center gap-2">
                           <span className="m-kicker">{kindLabel[item.type].toUpperCase()}</span>
                           <span className="m-chip" data-status={item.status}>
@@ -522,7 +567,7 @@ export function LearnPanel({
               })}
             </ul>
 
-            <article ref={guideReader} className={`m-card min-w-0 scroll-mt-4 p-4 sm:p-6 ${reading ? "" : "max-lg:hidden"}`}>
+            <article ref={guideReader} className={`m-card m-reader min-w-0 scroll-mt-4 p-5 sm:p-8 ${reading ? "" : "max-lg:hidden"}`}>
               <div className="mb-4 lg:hidden">
                 <button type="button" onClick={() => setReading(false)} className="m-btn-quiet min-h-11">
                   <Icon name="chevronLeft" size={16} />
@@ -557,7 +602,7 @@ function GuideBody({
       {!compact && (
         <div className="min-w-0">
           <p className="m-kicker">{kindLabel[shown.type].toUpperCase()}</p>
-          <h2 className="mt-2 text-2xl tracking-tight break-words">{shown.title}</h2>
+          <h2 className="mt-2 font-display text-2xl tracking-tight break-words">{shown.title}</h2>
         </div>
       )}
       {shown.status === "FAILED" && (

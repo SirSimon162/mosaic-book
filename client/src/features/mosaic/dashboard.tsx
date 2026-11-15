@@ -136,6 +136,10 @@ export function Dashboard({
                 onDelete={desk.deleteSources}
                 onReprocess={desk.reprocessSources}
                 onRefresh={desk.refreshSources}
+                onChatWithSources={(ids) => {
+                  chat.startWithSources(ids);
+                  setMode("chat");
+                }}
               />
             )}
             {mode === "chat" && (
@@ -147,7 +151,13 @@ export function Dashboard({
                 pending={chat.pending}
                 loading={chat.loading}
                 error={chat.error}
+                scopedSources={(chat.sourceIds ?? [])
+                  .map((id) => desk.active?.sources.find((source) => source.id === id))
+                  .filter((source): source is NonNullable<typeof source> => Boolean(source))
+                  .map((source) => ({ id: source.id, title: source.title }))}
                 onSend={(text) => void chat.send(text)}
+                onClearScope={chat.clearSourceIds}
+                onRemoveScope={chat.removeSourceId}
                 onDelete={
                   chat.chatId
                     ? () => {

@@ -38,7 +38,7 @@ const ARTIFACT_INSTRUCTIONS: Record<ArtifactType, string> = {
   FLASHCARDS:
     'Return {"cards":[{"front":"...","back":"..."}]} with 6 to 12 cards. The front is a prompt. The back is the answer from the sources.',
   QUIZ:
-    'Return {"questions":[{"question":"...","choices":["...","...","...","..."],"answerIndex":0}]} with 5 questions. answerIndex is the correct choice.',
+    'Return {"questions":[{"question":"...","choices":["...","...","...","..."],"answerIndex":2}]} with 5 questions. answerIndex is the 0-based index of the correct choice. Spread correct answers across different indices; do not put the correct choice first every time.',
   MINDMAP:
     'Return {"root":{"label":"...","children":[{"label":"...","children":[{"label":"..."}]}]}}. Use at most three levels.',
   REPORT:

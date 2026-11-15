@@ -6,7 +6,7 @@ const sources = ["results.xlsx", "Methods · YouTube", "field-notes.md"];
 export function Hero() {
   return (
     <section data-hero className={`${stackSection} bg-inverse text-inverse`}>
-      <div className="pointer-events-none absolute top-16 right-[8%] size-72 rounded-full bg-[var(--color-accent)]/30 blur-3xl" />
+      <div className="pointer-events-none absolute top-20 right-[10%] size-64 rounded-full bg-[var(--color-accent)]/18 blur-3xl" />
       <div
         data-sheet
         className="relative grid h-full w-full items-center gap-10 px-6 pt-24 sm:px-10 lg:grid-cols-2 lg:px-16"
@@ -16,8 +16,8 @@ export function Hero() {
             <span className="live-dot size-1.5 rounded-full bg-accent" />
             PRIVATE WORKSPACE
           </p>
-          <h1 className="mt-5 max-w-xl font-secondary text-5xl leading-[0.95] tracking-tight text-balance sm:text-7xl">
-            Ask the material you actually <em className="text-accent italic">have</em>.
+          <h1 className="mt-5 max-w-xl font-display text-5xl leading-[0.95] tracking-tight text-balance sm:text-7xl">
+            Ask the material you actually <em className="font-secondary text-accent italic">have</em>.
           </h1>
           <p className="mt-6 max-w-lg text-lg leading-relaxed text-[var(--color-inverse)]/75">
             Bring a document, a spreadsheet, a site, or a video. Ask about the
@@ -25,7 +25,7 @@ export function Hero() {
             from.
           </p>
           <div className="mt-8 flex items-center gap-5">
-            <EnterLink className="rounded-full bg-accent px-5 py-2.5 text-sm text-on-accent">
+            <EnterLink className="rounded-[9px] bg-accent px-5 py-2.5 text-sm text-on-accent transition-colors duration-200 hover:bg-[var(--color-accent-hover)]">
               Open Mosaic
             </EnterLink>
             <a
@@ -37,7 +37,7 @@ export function Hero() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-[var(--border-inverse)]/10 bg-secondary text-primary shadow-stage">
+        <div className="overflow-hidden rounded-[12px] border border-[var(--border-inverse)]/10 bg-[var(--surface)] text-primary shadow-stage">
           <div className="flex items-center justify-between gap-3 border-b border-primary px-4 py-3">
             <p className="min-w-0 truncate font-tertiary text-[11px] tracking-[0.14em] text-secondary">
               WORKSPACE · FIELD TRIAL

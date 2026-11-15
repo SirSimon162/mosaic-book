@@ -20,6 +20,7 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
   const [liveCitations, setLiveCitations] = useState<Citation[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [sourceIds, setSourceIds] = useState<string[] | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const tokens = useRef("");
   const frame = useRef(0);
@@ -33,6 +34,7 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
     setLiveCitations([]);
     setPending(false);
     setError("");
+    setSourceIds(null);
   }
 
   const known = chatId ? hasThread(loaded, chatId) : true;
@@ -112,6 +114,12 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
     setLiveCitations([]);
     setError("");
     setChatId(null);
+    setSourceIds(null);
+  }
+
+  function startWithSources(ids: string[]) {
+    startNew();
+    setSourceIds(ids.length ? [...new Set(ids)] : null);
   }
 
   function remember(id: string, next: ChatMessageRecord[]) {
@@ -154,7 +162,12 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
       }
       const activeId = id;
       let thread = loaded[activeId] ?? [];
-      for await (const event of MOSAIC.streamReply(workspaceId, activeId, { content }, controller.signal)) {
+      for await (const event of MOSAIC.streamReply(
+        workspaceId,
+        activeId,
+        { content, sourceIds: sourceIds ?? undefined },
+        controller.signal,
+      )) {
         if (controller.signal.aborted) return;
         if (event.type === "user") {
           thread = [...thread, event.message];
@@ -225,8 +238,17 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
     pending,
     loading: Boolean(chatId) && !known,
     error,
+    sourceIds,
     open,
     startNew,
+    startWithSources,
+    clearSourceIds: () => setSourceIds(null),
+    removeSourceId: (id: string) =>
+      setSourceIds((current) => {
+        if (!current) return current;
+        const next = current.filter((item) => item !== id);
+        return next.length ? next : null;
+      }),
     send,
     remove,
   };
