@@ -51,9 +51,21 @@ function chatModel(value: string): (typeof CHAT_MODELS)[number] {
 
 export type ChatStreamEvent =
   | { type: "user"; message: PublicMessage }
+  | { type: "status"; text: string }
+  | {
+      type: "rewrite";
+      query: string;
+      corrections: { from: string; to: string }[];
+    }
   | { type: "citations"; citations: ChunkSearchHit[] }
   | { type: "token"; text: string }
   | { type: "done"; message: PublicMessage };
+
+function didYouMeanLine(corrections: { from: string; to: string }[], query: string) {
+  if (!corrections.length) return "";
+  const pairs = corrections.map((item) => `"${item.from}" → "${item.to}"`).join(", ");
+  return `Did you mean “${query}”? (${pairs})`;
+}
 
 function toTurn(role: MessageRole, content: string): ChatTurn {
   return {
@@ -138,14 +150,33 @@ export async function* streamChatReply(
     return;
   }
 
-  const hits = await searchWorkspaceSources(workspaceId, {
+  yield { type: "status", text: "Searching your sources…" };
+
+  const { hits, query, corrections } = await searchWorkspaceSources(workspaceId, {
     query: data.content,
     ...(data.sourceIds !== undefined ? { sourceIds: data.sourceIds } : {}),
   });
   if (isAborted()) {
     return;
   }
+
+  if (corrections.length > 0) {
+    const hint = didYouMeanLine(corrections, query);
+    yield {
+      type: "rewrite",
+      query,
+      corrections,
+    };
+    yield { type: "status", text: hint };
+  }
+
   yield { type: "citations", citations: hits };
+  yield {
+    type: "status",
+    text: hits.length
+      ? "Writing an answer from the matched passages…"
+      : "No close matches yet…",
+  };
 
   const summaryState = await getChatSummaryState(chatId);
   const recent = await listRecentMessages(chatId, RECENT_MESSAGE_WINDOW);
@@ -154,14 +185,24 @@ export async function* streamChatReply(
     .filter((message) => message.content !== STUB_ASSISTANT_REPLY)
     .map((message) => toTurn(message.role, message.content));
 
+  const question = corrections.length > 0 ? query : data.content;
+  const rewriteNote =
+    corrections.length > 0 ? `${didYouMeanLine(corrections, query)}\n\n` : "";
+
   let assistantContent = "";
   if (hits.length === 0) {
-    assistantContent = NO_SOURCE_REPLY;
+    assistantContent = rewriteNote
+      ? `${rewriteNote}${NO_SOURCE_REPLY}`
+      : NO_SOURCE_REPLY;
     yield { type: "token", text: assistantContent };
   } else {
+    if (rewriteNote) {
+      assistantContent = rewriteNote;
+      yield { type: "token", text: rewriteNote };
+    }
     for await (const text of streamFromSources({
       model,
-      question: data.content,
+      question,
       priorTurns,
       sources: hits,
       summary: summaryState?.summary ?? null,

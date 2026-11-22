@@ -592,6 +592,12 @@ body {
   color: var(--m-ink);
 }
 
+[data-mosaic] .m-sidebar .m-item,
+[data-mosaic] .m-sidebar .m-icon-btn,
+[data-mosaic] .m-sidebar .m-btn-ghost {
+  border-radius: 4px;
+}
+
 [data-mosaic] .m-item .m-kicker {
   color: var(--m-muted);
 }
@@ -739,6 +745,51 @@ body {
   margin-bottom: 2px;
 }
 
+[data-mosaic] .m-thinking {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+[data-mosaic] .m-thinking-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 0.4rem;
+  border-radius: 999px;
+  background: var(--m-accent, var(--m-ink));
+  flex-shrink: 0;
+  animation: m-thinking-pulse 1.1s ease-in-out infinite;
+}
+
+[data-mosaic] .m-thinking-line {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--m-muted, var(--m-ink));
+  opacity: 0.88;
+}
+
+[data-mosaic] .m-thinking-hint {
+  margin: 0 0 0 1.1rem;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: var(--m-muted, var(--m-ink));
+  opacity: 0.72;
+}
+
+@keyframes m-thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 [data-mosaic] .m-md {
   min-width: 0;
 }
@@ -762,6 +813,19 @@ body {
 
 [data-mosaic] .m-md-em {
   font-style: italic;
+}
+
+[data-mosaic] .m-bubble-user .m-md-strong {
+  font-weight: 800;
+}
+
+[data-mosaic] .m-bubble-user .m-md-em {
+  font-style: italic;
+  opacity: 0.96;
+}
+
+[data-mosaic] .m-bubble-user .m-md-inline {
+  font-family: var(--font-tertiary), ui-monospace, monospace;
 }
 
 [data-mosaic] .m-md-del {

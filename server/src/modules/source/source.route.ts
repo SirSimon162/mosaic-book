@@ -142,8 +142,8 @@ sourceRoutes.post("/search", limitSourceSearch, async (req, res) => {
   if (!body.success) {
     return sendFail(res, Status.BAD_REQUEST, "Invalid input");
   }
-  const hits = await searchWorkspaceSources(params.data.workspaceId, body.data);
-  return sendSuccess(res, Status.OK, hits);
+  const result = await searchWorkspaceSources(params.data.workspaceId, body.data);
+  return sendSuccess(res, Status.OK, result);
 });
 
 sourceRoutes.get("/:sourceId", async (req, res) => {

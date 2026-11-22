@@ -1,6 +1,12 @@
 import { Prisma } from "../../generated/prisma/client.js";
 import { SourceStatus, SourceType } from "../../generated/prisma/enums.js";
-import { RAG_MIN_SCORE, RAG_TOP_K } from "../../lib/ai-config.js";
+import {
+  QUERY_VOCAB_CHUNK_CHARS,
+  QUERY_VOCAB_SOURCE_CHARS,
+  QUERY_VOCAB_SOURCE_LIMIT,
+  RAG_MIN_SCORE,
+  RAG_TOP_K,
+} from "../../lib/ai-config.js";
 import { TextChunk } from "../../lib/chunking.js";
 import { prisma } from "../../lib/prisma.js";
 import { toPgVector } from "../../lib/vector.js";
@@ -380,6 +386,71 @@ export async function replaceSourceChunks(
 }
 
 const SEARCH_SNIPPET_LENGTH = 240;
+
+export async function listWorkspaceVocabDocuments(
+  workspaceId: string,
+  sourceIds?: string[],
+): Promise<string[]> {
+  if (sourceIds && sourceIds.length === 0) return [];
+
+  const rows = await prisma.source.findMany({
+    where: {
+      workspaceId,
+      status: SourceStatus.COMPLETED,
+      ...(sourceIds ? { id: { in: sourceIds } } : {}),
+    },
+    select: {
+      title: true,
+      source: true,
+      chunks: {
+        select: { content: true },
+        orderBy: { index: "asc" },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+    take: QUERY_VOCAB_SOURCE_LIMIT,
+  });
+
+  return rows.map((row) => {
+    const extract = row.source?.slice(0, QUERY_VOCAB_SOURCE_CHARS) ?? "";
+    const chunkParts = sampleChunkTexts(row.chunks, QUERY_VOCAB_CHUNK_CHARS);
+    return `${row.title}\n${extract}\n${chunkParts}`.trim();
+  });
+}
+
+function sampleChunkTexts(
+  chunks: { content: string }[],
+  maxChars: number,
+): string {
+  if (chunks.length === 0 || maxChars <= 0) return "";
+
+  const total = chunks.reduce((sum, chunk) => sum + chunk.content.length, 0);
+  if (total <= maxChars) {
+    return chunks.map((chunk) => chunk.content).join("\n");
+  }
+
+  const targetPieces = Math.max(8, Math.min(chunks.length, Math.ceil(maxChars / 600)));
+  const step = Math.max(1, Math.floor(chunks.length / targetPieces));
+  const parts: string[] = [];
+  let used = 0;
+  const seen = new Set<number>();
+
+  for (let i = 0; i < chunks.length && used < maxChars; i += step) {
+    seen.add(i);
+    const slice = chunks[i]!.content.slice(0, Math.min(900, maxChars - used));
+    if (!slice) continue;
+    parts.push(slice);
+    used += slice.length;
+  }
+
+  const last = chunks.length - 1;
+  if (!seen.has(last) && used < maxChars) {
+    const slice = chunks[last]!.content.slice(0, Math.min(900, maxChars - used));
+    if (slice) parts.push(slice);
+  }
+
+  return parts.join("\n");
+}
 
 export async function searchChunks(
   workspaceId: string,

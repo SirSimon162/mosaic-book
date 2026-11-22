@@ -162,8 +162,18 @@ export type ChatDetail = ChatRecord & {
   messages: ChatMessageRecord[];
 };
 
+export type QueryCorrection = { from: string; to: string };
+
+export type SourceSearchResult = {
+  hits: Citation[];
+  query: string;
+  corrections: QueryCorrection[];
+};
+
 export type ChatStreamEvent =
   | { type: "user"; message: ChatMessageRecord }
+  | { type: "status"; text: string }
+  | { type: "rewrite"; query: string; corrections: QueryCorrection[] }
   | { type: "citations"; citations: Citation[] }
   | { type: "token"; text: string }
   | { type: "done"; message: ChatMessageRecord }

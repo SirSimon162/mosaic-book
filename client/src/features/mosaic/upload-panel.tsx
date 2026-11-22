@@ -601,10 +601,16 @@ export function UploadPanel({
     try {
       const next = await MOSAIC.searchSources(workspaceId, { query: queryText }, controller.signal);
       if (!controller.signal.aborted) {
-        setHits(next);
+        setHits(next.hits);
         setSearched(true);
-        setLiveMessage(next.length ? `Found ${next.length} passages` : "No passages matched");
-        if (next.length) toast.success(`Found ${next.length} passages`);
+        const rewrite =
+          next.corrections.length > 0 ? ` (using “${next.query}”)` : "";
+        setLiveMessage(
+          next.hits.length
+            ? `Found ${next.hits.length} passages${rewrite}`
+            : `No passages matched${rewrite}`,
+        );
+        if (next.hits.length) toast.success(`Found ${next.hits.length} passages${rewrite}`);
         else toast.info("No close matches", "Try a quote from View content");
       }
     } catch (cause) {

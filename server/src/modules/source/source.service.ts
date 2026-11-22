@@ -31,10 +31,18 @@ import {
   findSourcesForReprocess,
   getSource,
   getSourcesByWorkspaceId,
+  listWorkspaceVocabDocuments,
   resetSourcesForReprocess,
   searchChunks,
 } from "./source.repository.js";
-import { embedTexts } from "../../lib/openai.js";
+import {
+  embedTexts,
+  generateHypotheticalPassage,
+  generateStepBackQuestion,
+} from "../../lib/openai.js";
+import { correctQueryAgainstVocab } from "../../lib/query-correct.js";
+import { reciprocalRankFusion } from "../../lib/rrf.js";
+import { HYDE_ENABLED, STEP_BACK_ENABLED } from "../../lib/ai-config.js";
 import { SourceType } from "../../generated/prisma/enums.js";
 import { deleteAsset, saveUpload } from "../../lib/cloudinary-config.js";
 import { Prisma } from "../../generated/prisma/client.js";
@@ -186,19 +194,54 @@ export async function deleteSource(workspaceId: string, sourceId: string) {
   }
 }
 
+export type WorkspaceSourceSearch = {
+  hits: ChunkSearchHit[];
+  query: string;
+  corrections: { from: string; to: string }[];
+};
+
 export async function searchWorkspaceSources(
   workspaceId: string,
   input: SearchSources,
-): Promise<ChunkSearchHit[]> {
+): Promise<WorkspaceSourceSearch> {
   if (input.sourceIds && input.sourceIds.length === 0) {
-    return [];
+    return { hits: [], query: input.query, corrections: [] };
   }
-  const [embedding] = await embedTexts([input.query]);
-  if (!embedding) {
+
+ 
+  const documents = await listWorkspaceVocabDocuments(workspaceId, input.sourceIds);
+  const { query, corrections } = correctQueryAgainstVocab(input.query, documents);
+
+  const [hypothetical, stepBack] = await Promise.all([
+    HYDE_ENABLED
+      ? generateHypotheticalPassage(query).catch(() => null)
+      : Promise.resolve(null),
+    STEP_BACK_ENABLED
+      ? generateStepBackQuestion(query).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const embedInputs = [query];
+  if (stepBack) embedInputs.push(stepBack);
+  if (hypothetical) embedInputs.push(hypothetical);
+
+  const embeddings = await embedTexts(embedInputs);
+  if (!embeddings.length || !embeddings[0]) {
     throw new AppError("Failed to embed query", Status.INTERNAL_SERVER_ERROR);
   }
-  const hits = await searchChunks(workspaceId, embedding, input.sourceIds);
-  return chunkSearchHitSchema.array().parse(hits);
+
+  const hitGroups: ChunkSearchHit[][] = [];
+  for (const embedding of embeddings) {
+    if (!embedding) continue;
+    hitGroups.push(await searchChunks(workspaceId, embedding, input.sourceIds));
+  }
+
+  const hits = reciprocalRankFusion(hitGroups);
+  return {
+    hits: chunkSearchHitSchema.array().parse(hits),
+    query,
+    corrections,
+  };
 }
 
 export async function deleteManySources(

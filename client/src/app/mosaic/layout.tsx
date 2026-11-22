@@ -11,12 +11,14 @@ export const metadata: Metadata = {
 
 export default function MosaicLayout({ children }: { children: ReactNode }) {
   return (
-    <div data-mosaic className="h-full min-h-0">
-      <MosaicGate>
-        <WorkspaceProvider>
-          <ToastProvider>{children}</ToastProvider>
-        </WorkspaceProvider>
-      </MosaicGate>
+    <div className="h-dvh overflow-hidden">
+      <div data-mosaic className="h-full min-h-0">
+        <MosaicGate>
+          <WorkspaceProvider>
+            <ToastProvider>{children}</ToastProvider>
+          </WorkspaceProvider>
+        </MosaicGate>
+      </div>
     </div>
   );
 }

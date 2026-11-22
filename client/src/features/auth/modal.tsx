@@ -12,10 +12,12 @@ export function AuthModal({
   open,
   onClose,
   onSuccess,
+  required = false,
 }: {
   open: boolean;
-  onClose: () => void;
+  onClose?: () => void;
   onSuccess?: () => void;
+  required?: boolean;
 }) {
   const router = useRouter();
   const titleId = useId();
@@ -29,14 +31,14 @@ export function AuthModal({
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape" && !pending) onClose();
+      if (event.key === "Escape" && !pending && !required && onClose) onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = previous;
       window.removeEventListener("keydown", onKey);
     };
-  }, [open, onClose, pending]);
+  }, [open, onClose, pending, required]);
 
   useEffect(() => {
     if (open) return;
@@ -85,7 +87,7 @@ export function AuthModal({
     <div
       className="fixed inset-0 z-[80] grid place-items-center bg-[var(--bg-inverse)]/50 p-4"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !pending) onClose();
+        if (event.target === event.currentTarget && !pending && !required && onClose) onClose();
       }}
     >
       <div
@@ -101,15 +103,17 @@ export function AuthModal({
               {mode === "login" ? "Log in" : "Create an account"}
             </h2>
           </div>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            disabled={pending}
-            className="grid size-9 place-items-center rounded-lg text-secondary hover:bg-primary hover:text-primary"
-          >
-            <X className="size-4" />
-          </button>
+          {!required && onClose ? (
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={onClose}
+              disabled={pending}
+              className="grid size-9 place-items-center rounded-lg text-secondary hover:bg-primary hover:text-primary"
+            >
+              <X className="size-4" />
+            </button>
+          ) : null}
         </div>
 
         <div className="mt-5 grid grid-cols-2 rounded-lg bg-primary p-1">

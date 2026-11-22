@@ -7,6 +7,27 @@ function nodesToMarkdown(nodes: ChildNode[]): string {
   return nodes.map((node) => nodeToMarkdown(node)).join("");
 }
 
+function styleLooksBold(el: HTMLElement) {
+  const weight = (el.style.fontWeight || "").trim().toLowerCase();
+  if (!weight) return false;
+  if (weight === "bold" || weight === "bolder") return true;
+  const numeric = Number(weight);
+  return Number.isFinite(numeric) && numeric >= 600;
+}
+
+function styleLooksItalic(el: HTMLElement) {
+  const style = (el.style.fontStyle || "").trim().toLowerCase();
+  return style === "italic" || style === "oblique";
+}
+
+function wrapMarkdown(inner: string, bold: boolean, italic: boolean) {
+  if (!inner) return "";
+  if (bold && italic) return `***${inner}***`;
+  if (bold) return `**${inner}**`;
+  if (italic) return `_${inner}_`;
+  return inner;
+}
+
 function nodeToMarkdown(node: ChildNode): string {
   if (node.nodeType === Node.TEXT_NODE) {
     return node.textContent ?? "";
@@ -17,8 +38,8 @@ function nodeToMarkdown(node: ChildNode): string {
   const inner = nodesToMarkdown(Array.from(el.childNodes));
 
   if (tag === "br") return "\n";
-  if (tag === "strong" || tag === "b") return inner ? `**${inner}**` : "";
-  if (tag === "em" || tag === "i") return inner ? `_${inner}_` : "";
+  if (tag === "strong" || tag === "b") return wrapMarkdown(inner, true, false);
+  if (tag === "em" || tag === "i") return wrapMarkdown(inner, false, true);
   if (tag === "code") {
     if (el.closest("pre")) return inner;
     return inner ? `\`${inner.replace(/`/g, "\\`")}\`` : "";
@@ -46,7 +67,10 @@ function nodeToMarkdown(node: ChildNode): string {
         .join("\n") + "\n"
     );
   }
-  return inner;
+  if (tag === "span" || tag === "font") {
+    return wrapMarkdown(inner, styleLooksBold(el), styleLooksItalic(el));
+  }
+  return wrapMarkdown(inner, styleLooksBold(el), styleLooksItalic(el));
 }
 
 export function editorIsEmpty(root: HTMLElement) {
@@ -65,11 +89,11 @@ export function applyEditorFormat(kind: FormatKind) {
   if (!selection) return;
 
   if (kind === "bold") {
-    document.execCommand("bold");
+    toggleInlineTag(selection, "strong");
     return;
   }
   if (kind === "italic") {
-    document.execCommand("italic");
+    toggleInlineTag(selection, "em");
     return;
   }
   if (kind === "code") {
@@ -77,6 +101,43 @@ export function applyEditorFormat(kind: FormatKind) {
     return;
   }
   insertCodeBlock(selection);
+}
+
+function toggleInlineTag(selection: Selection, tagName: "strong" | "em") {
+  if (!selection.rangeCount) return;
+  const anchor = selection.anchorNode;
+  const existing =
+    anchor instanceof Element ? anchor.closest(tagName) : anchor?.parentElement?.closest(tagName);
+  if (existing) {
+    const text = document.createTextNode(existing.textContent ?? "");
+    existing.replaceWith(text);
+    selection.removeAllRanges();
+    const range = document.createRange();
+    range.setStartAfter(text);
+    range.collapse(true);
+    selection.addRange(range);
+    return;
+  }
+
+  if (selection.isCollapsed) {
+    const el = document.createElement(tagName);
+    el.append(tagName === "strong" ? "bold" : "italic");
+    const range = selection.getRangeAt(0);
+    range.insertNode(el);
+    range.selectNodeContents(el);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return;
+  }
+
+  const range = selection.getRangeAt(0);
+  const el = document.createElement(tagName);
+  el.append(range.extractContents());
+  range.insertNode(el);
+  selection.removeAllRanges();
+  const next = document.createRange();
+  next.selectNodeContents(el);
+  selection.addRange(next);
 }
 
 function toggleInlineCode(selection: Selection) {
@@ -140,14 +201,30 @@ function insertCodeBlock(selection: Selection) {
   selection.addRange(next);
 }
 
+function ancestorHasFormat(el: Element, kind: "bold" | "italic") {
+  let current: Element | null = el;
+  while (current) {
+    if (kind === "bold") {
+      const tag = current.tagName.toLowerCase();
+      if (tag === "strong" || tag === "b" || styleLooksBold(current as HTMLElement)) return true;
+    } else {
+      const tag = current.tagName.toLowerCase();
+      if (tag === "em" || tag === "i" || styleLooksItalic(current as HTMLElement)) return true;
+    }
+    if ((current as HTMLElement).isContentEditable && current.getAttribute("contenteditable") === "true") break;
+    current = current.parentElement;
+  }
+  return false;
+}
+
 export function queryFormatActive(kind: FormatKind): boolean {
-  if (kind === "bold") return document.queryCommandState("bold");
-  if (kind === "italic") return document.queryCommandState("italic");
   const selection = window.getSelection();
   if (!selection?.anchorNode) return false;
   const node = selection.anchorNode;
   const el = node instanceof Element ? node : node.parentElement;
   if (!el) return false;
+  if (kind === "bold") return ancestorHasFormat(el, "bold");
+  if (kind === "italic") return ancestorHasFormat(el, "italic");
   if (kind === "code") return Boolean(el.closest("code") && !el.closest("pre"));
   return Boolean(el.closest("pre"));
 }

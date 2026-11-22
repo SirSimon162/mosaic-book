@@ -18,6 +18,8 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
   const [loaded, setLoaded] = useState<Record<string, ChatMessageRecord[]>>({});
   const [draftText, setDraftText] = useState("");
   const [liveCitations, setLiveCitations] = useState<Citation[]>([]);
+  const [statusText, setStatusText] = useState("");
+  const [rewriteHint, setRewriteHint] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [sourceIds, setSourceIds] = useState<string[] | null>(null);
@@ -32,6 +34,8 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
     setLoaded({});
     setDraftText("");
     setLiveCitations([]);
+    setStatusText("");
+    setRewriteHint("");
     setPending(false);
     setError("");
     setSourceIds(null);
@@ -103,6 +107,8 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
     setPending(false);
     setDraftText("");
     setLiveCitations([]);
+    setStatusText("");
+    setRewriteHint("");
     setError("");
     setChatId(id);
   }
@@ -112,6 +118,8 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
     setPending(false);
     setDraftText("");
     setLiveCitations([]);
+    setStatusText("");
+    setRewriteHint("");
     setError("");
     setChatId(null);
     setSourceIds(null);
@@ -144,6 +152,8 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
     setError("");
     setDraftText("");
     setLiveCitations([]);
+    setStatusText("");
+    setRewriteHint("");
     setPending(true);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -172,9 +182,14 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
         if (event.type === "user") {
           thread = [...thread, event.message];
           remember(activeId, thread);
+        } else if (event.type === "status") {
+          setStatusText(event.text);
+        } else if (event.type === "rewrite") {
+          setRewriteHint(`Did you mean “${event.query}”?`);
         } else if (event.type === "citations") {
           setLiveCitations(event.citations);
         } else if (event.type === "token") {
+          setStatusText("");
           pushToken(event.text);
         } else if (event.type === "done") {
           if (frame.current) cancelAnimationFrame(frame.current);
@@ -184,11 +199,15 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
           remember(activeId, thread);
           setDraftText("");
           setLiveCitations([]);
+          setStatusText("");
+          setRewriteHint("");
           desk.placeChat({ id: activeId, title });
         } else if (event.type === "error") {
           setError(event.message);
           setDraftText("");
           setLiveCitations([]);
+          setStatusText("");
+          setRewriteHint("");
         }
       }
     } catch (cause) {
@@ -197,6 +216,8 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
       }
       setDraftText("");
       setLiveCitations([]);
+      setStatusText("");
+      setRewriteHint("");
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
@@ -227,6 +248,8 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
       setChatId(null);
       setDraftText("");
       setLiveCitations([]);
+      setStatusText("");
+      setRewriteHint("");
     }
   }
 
@@ -235,6 +258,7 @@ export function useWorkspaceChat(workspaceId: string, enabled: boolean) {
     messages,
     draftText,
     liveCitations,
+    statusText: rewriteHint || statusText,
     pending,
     loading: Boolean(chatId) && !known,
     error,

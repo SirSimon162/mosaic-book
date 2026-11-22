@@ -1,5 +1,12 @@
 import OpenAI, { APIError } from "openai";
-import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL } from "./ai-config.js";
+import {
+  EMBEDDING_DIMENSIONS,
+  EMBEDDING_MODEL,
+  HYDE_MAX_CHARS,
+  HYDE_MODEL,
+  STEP_BACK_MAX_CHARS,
+  STEP_BACK_MODEL,
+} from "./ai-config.js";
 import environment from "../config/env.js";
 
 const EMBEDDING_BATCH_SIZE = 64;
@@ -74,6 +81,67 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
     vectors.push(...vectorsFromResponse(response.data, batch.length));
   }
   return vectors;
+}
+
+export async function generateHypotheticalPassage(query: string): Promise<string | null> {
+  const question = query.trim();
+  if (!question) return null;
+
+  const openai = embedClient();
+  const response = await openai.chat.completions.create({
+    model: HYDE_MODEL,
+    temperature: 0.3,
+    max_tokens: 280,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Write one short reference-style passage that could appear in notes or an article and would answer the user's question. Write as factual prose, not as a chat reply. Do not mention sources, citations, URLs, or that the passage is hypothetical. Keep it under 180 words.",
+      },
+      {
+        role: "user",
+        content: question,
+      },
+    ],
+  });
+
+  const text = response.choices[0]?.message?.content?.trim() ?? "";
+  if (!text) return null;
+  return text.slice(0, HYDE_MAX_CHARS);
+}
+
+/**
+ * Step-back: rewrite the user question as a broader, higher-level question.
+ * Used only as an extra retrieval query. Different from HyDE (which drafts an
+ * answer-like passage). Never cited or injected into the grounded chat prompt.
+ */
+export async function generateStepBackQuestion(query: string): Promise<string | null> {
+  const question = query.trim();
+  if (!question) return null;
+
+  const openai = embedClient();
+  const response = await openai.chat.completions.create({
+    model: STEP_BACK_MODEL,
+    temperature: 0.2,
+    max_tokens: 96,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Rewrite the user's question as one broader step-back question that asks for the underlying concept, role, or background needed to answer it. Return only that question. Do not answer it. Do not add preamble.",
+      },
+      {
+        role: "user",
+        content: question,
+      },
+    ],
+  });
+
+  const text = response.choices[0]?.message?.content?.trim() ?? "";
+  if (!text) return null;
+  const cleaned = text.replace(/^["']|["']$/g, "").trim();
+  if (!cleaned || cleaned.toLowerCase() === question.toLowerCase()) return null;
+  return cleaned.slice(0, STEP_BACK_MAX_CHARS);
 }
 
 export type ChatTurn = {

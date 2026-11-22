@@ -148,6 +148,7 @@ export function Dashboard({
                 messages={chat.messages}
                 draftText={chat.draftText}
                 liveCitations={chat.liveCitations}
+                statusText={chat.statusText}
                 pending={chat.pending}
                 loading={chat.loading}
                 error={chat.error}

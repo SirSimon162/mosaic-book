@@ -1,8 +1,10 @@
 # Mosaic Research
 
-A private study workspace. The browser talks only to an Express API. Postgres holds the documents, the chunks, and the vectors. Inngest runs the slow work after the HTTP response has already returned.
+A private study workspace. Import PDFs, websites, YouTube transcripts, and notes. Ask grounded questions with citations. Generate flashcards, quizzes, and reports from the sources you already own.
 
-This document is the architecture: what the pieces are, why they are split this way, and which tradeoffs are still open.
+The browser talks only to an Express API. Postgres holds the documents, the chunks, and the vectors. Inngest runs the slow work after the HTTP response has already returned.
+
+**Open source.** Docs: [`index.html`](./index.html). Star the repo: [github.com/SirSimon162/mosaic-book](https://github.com/SirSimon162/mosaic-book). Architecture detail is this README. The Next.js app starts at `/mosaic`; signed-out visitors get login/register.
 
 ```mermaid
 flowchart LR
@@ -41,7 +43,7 @@ Server code is `route → service → repository`.
 | Route | Parse params and body with Zod, send the JSON envelope, attach rate limits |
 | Service | Rules: membership, empty `sourceIds`, enqueue the event |
 | Repository | Prisma queries and the raw SQL that writes vectors |
-| `server/src/lib` | Cloudinary, PDF, Firecrawl, YouTube, chunking, OpenAI, Inngest client |
+| `server/src/lib` | Cloudinary, PDF, Firecrawl, YouTube, chunking, OpenAI, query correction, Inngest client |
 | `server/src/inngest` | `process-source`, `generate-artifact` |
 
 A route does not embed text. A repository does not decide that an empty source list is invalid. That keeps the HTTP edge replaceable and the SQL in one place.
@@ -126,9 +128,75 @@ Chunking defaults live in `server/src/lib/ai-config.ts`: 1000 characters, 100 of
 
 ## Retrieval and chat
 
-Search embeds the query with `text-embedding-3-small` (1536 dimensions) and orders chunks by cosine distance in pgvector. The score is `1 - distance`. Rows worse than `RAG_MIN_SCORE` (0.5) are dropped, then `RAG_TOP_K` (6) are returned. The query always joins `Source` and filters by `workspaceId`, so a chunk from another workspace cannot match. An explicit empty `sourceIds` list searches nothing and does not call the embedding API. Omitting the list searches every `COMPLETED` source in the workspace.
+Passage search and chat both call `searchWorkspaceSources`. After optional typo correction, Mosaic retrieves with **query + step-back + HyDE** embeddings, fuses the ranked lists with **RRF**, then answers only from real workspace chunks.
 
-`POST /chat/:chatId/messages` is server-sent events, not a second WebSocket server. Express already holds the response open, and the client only needs a stream of tokens plus one terminal event. Events are `user`, `citations`, `token`, `done`, and `error`. Citations are the search hits stored on the assistant message. If search returns nothing, the reply is the fixed sentence `I couldn't find that in the sources for this workspace.` The chat model is not called.
+Search embeds text with `text-embedding-3-small` (1536 dimensions) and orders chunks by cosine distance in pgvector. The score is `1 - distance`. Rows worse than `RAG_MIN_SCORE` (0.5) are dropped per list. The query always joins `Source` and filters by `workspaceId`, so a chunk from another workspace cannot match. An explicit empty `sourceIds` list searches nothing and does not call the embedding API. Omitting the list searches every `COMPLETED` source in the workspace.
+
+### HyDE (Hypothetical Document Embeddings)
+
+Short questions live in a different embedding neighborhood than the passages stored in chunks. HyDE bridges that gap for **retrieval only**.
+
+| Step | Behavior |
+|------|----------|
+| Draft | `gpt-4o-mini` writes a short reference-style passage that could answer the corrected query (`generateHypotheticalPassage`). |
+| Embed | That passage is embedded alongside the corrected query (and step-back, below). |
+| Search | Same pgvector search, same `RAG_MIN_SCORE`, same `workspaceId` filter. |
+| Fallback | If HyDE fails or returns empty text, that list is skipped. |
+| Answer path | The hypothetical passage is **never** returned as a citation, never stored on the message, and never injected into `streamFromSources`. |
+
+Toggle and limits: `HYDE_ENABLED`, `HYDE_MODEL`, `HYDE_MAX_CHARS` in `ai-config.ts`.
+
+**Not the same as step-back.** HyDE drafts an *answer-like passage*. Step-back drafts a *broader question*. Both are retrieval-only.
+
+### Step-back prompting
+
+Specific questions can miss the background chunk that actually holds the answer. Step-back asks a higher-level question first, then retrieves with that broader query as well.
+
+| Step | Behavior |
+|------|----------|
+| Rewrite | `gpt-4o-mini` turns the corrected query into one broader question (`generateStepBackQuestion`), e.g. a role/context question instead of a narrow factual ask. |
+| Embed | The step-back question is embedded as an extra retrieval query. |
+| Skip | If rewrite fails, is empty, or equals the original query, that list is skipped. |
+| Answer path | The step-back question is **never** cited and **never** added to the grounded chat prompt. |
+
+Toggle and limits: `STEP_BACK_ENABLED`, `STEP_BACK_MODEL`, `STEP_BACK_MAX_CHARS` in `ai-config.ts`.
+
+### Reciprocal Rank Fusion (RRF)
+
+Query, step-back, and HyDE each produce their own ranked chunk list. Raw cosine scores are not comparable across those lists, so Mosaic fuses ranks instead of taking `max(score)`.
+
+| Step | Behavior |
+|------|----------|
+| Input | Ranked lists already filtered by `RAG_MIN_SCORE` and workspace membership. |
+| Score | For each chunk id: `Σ 1 / (RRF_K + rank)` across lists where it appears (`RRF_K = 60`). |
+| Output | Sort by fused score, keep `RAG_TOP_K` (6). Payload kept from the strongest cosine hit for that chunk. |
+
+Implementation: `server/src/lib/rrf.ts`, used by `searchWorkspaceSources`.
+
+**Guardrails shared by HyDE, step-back, and RRF.** Generated text is only for embedding/ranking. Evidence still comes only from `SourceChunk` rows. Empty fused retrieval still yields `I couldn't find that in the sources for this workspace.` and skips the chat model. Score floor and workspace isolation are unchanged.
+
+### Query typo correction
+
+Before HyDE/query embedding, Mosaic optionally rewrites misspelled tokens against vocabulary that already exists in that workspace.
+
+| Step | Behavior |
+|------|----------|
+| Vocab load | Up to 80 `COMPLETED` sources in the workspace (optional `sourceIds` filter). Uses each `title`, up to 120,000 characters of `Source.source`, plus a spread sample of chunk text (so names deep in long pages still count). |
+| Tokenize | Alphanumeric tokens of length ≥ 3 (`QUERY_FUZZY_MIN_TOKEN`). |
+| Exact hit | If the token already appears in the vocab (case-insensitive), leave it alone. |
+| Fuzzy match | Otherwise score candidates with **Levenshtein** distance. Max distance is 1 for short tokens (length ≤ 4), otherwise up to `QUERY_FUZZY_MAX_DISTANCE` (2). Candidate length must be within that same window. |
+| Neighbor preference | If the query already has an exact vocab token (e.g. `Jay`), prefer candidates that co-occur next to that token in sources. This is how `Jay sheh` becomes `Jay Shah` even when other distance-1 words exist. |
+| Short-name support | Tokens of length 3 (e.g. `Vay`) only rewrite when that neighbor support exists. Longer tokens can still fall back to a unique global winner if no anchor helps. |
+| Unique winner | Accept a replacement only when one preferred candidate is strictly closer than the runner-up. Ties are skipped so ambiguous near-matches are not rewritten. |
+| Cap | At most `QUERY_FUZZY_MAX_CORRECTIONS` (3) tokens per query. |
+| UX | Chat emits a `rewrite` / `status` SSE so the UI can show “Did you mean …?” and still answer with the corrected query. |
+| Next | The corrected string is passed into query + step-back + HyDE retrieval (above), then RRF. |
+
+Examples: `hidalco` → `Hindalco` when that term appears in a title or extract; `Vay Shah` → `Jay Shah` and `Jay sheh` → `Jay Shah` when `Jay` and `Shah` co-occur in your sources. Nonsense tokens with no close, supported vocab neighbor stay unchanged.
+
+**Guardrails.** Corrections come only from owned source text - never from the open web and never by inventing entities outside the library. Short 3-letter tokens cannot rewrite from distance alone; they need a co-occurring exact query anchor already present in the sources. `RAG_MIN_SCORE` is not lowered. Workspace isolation on the chunk query is unchanged. If search still returns no hits, chat replies with the fixed sentence (plus any did-you-mean note) and does not call the model. Implementation: `server/src/lib/query-correct.ts`, hooked in `source.service.ts`; thresholds live in `ai-config.ts`.
+
+`POST /chat/:chatId/messages` is server-sent events, not a second WebSocket server. Express already holds the response open, and the client only needs a stream of tokens plus one terminal event. Events are `user`, `status`, `rewrite`, `citations`, `token`, `done`, and `error`. Citations are the search hits stored on the assistant message. If search returns nothing, the reply is the fixed sentence `I couldn't find that in the sources for this workspace.` The chat model is not called.
 
 The model is the workspace `defaultModel`. The prompt gets the last 12 messages and a rolling summary of the older ones. The summary refreshes after 8 new turns fall outside that window, and a failure there does not fail the reply. That summary is per thread. It is not a memory of other chats.
 
@@ -181,6 +249,18 @@ Over the limit, the error handler returns `429` with `Too many requests`. The ma
 
 **Per-thread summary, not a memory product.** The summary is a column on `Chat`, updated after the reply is saved. It gives the model continuity inside one study session. It does not remember facts across chats, and it is not cited as a source.
 
+**Correct typos against owned vocabulary, not the web.** Entity misspellings should not silently expand the search surface outside the workspace. The rewrite step only proposes replacements that already appear in completed sources for that room. See [Query typo correction](#query-typo-correction).
+
+**HyDE and step-back for retrieval, never for answers.** HyDE drafts a hypothetical passage; step-back drafts a broader question. Both are discarded after embedding. RRF fuses the ranked lists. Citations and the chat prompt only see real chunks. See [HyDE](#hyde-hypothetical-document-embeddings), [Step-back prompting](#step-back-prompting), and [RRF](#reciprocal-rank-fusion-rrf).
+
+## Secrets and local Postgres
+
+- Copy `server/.env.example` → `server/.env`. Fill real API keys there. **Never commit `.env`.**
+- `server/docker-compose.yml` reads `POSTGRES_*` from the environment / `.env`. The published port is `127.0.0.1:5432` only.
+- The compose default password `changeme-local-only` is for solo local use. Change it and keep `DATABASE_URL` in sync before any shared machine.
+- Client may set `NEXT_PUBLIC_API_BASE_URL` (API origin only). No secrets belong in `NEXT_PUBLIC_*`.
+- Rotate OpenAI / Cloudinary / Firecrawl / JWT if they ever leaked through logs, screenshots, or chat pastes.
+
 ## Still open
 
 **Web search as a source.** There is no route for this. Add one that runs the search, saves the result as a normal source, and enqueues the existing ingest job.
@@ -194,14 +274,19 @@ Also open, in the order they start to matter:
 
 ## Run
 
-Postgres comes from `server/docker-compose.yml` (`pgvector/pgvector:pg17`). Copy `server/.env.example` to `server/.env` and fill it in. `FIRECRAWL_API_KEY` is required to import a website. `OPENAI_API_KEY` is required to embed, to chat, and to write study guides. `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` are required only in production. `CLIENT_ORIGIN` is the browser origin allowed to send the cookie.
+Postgres comes from `server/docker-compose.yml` (`pgvector/pgvector:pg17`).
 
 ```bash
 cd server
+cp .env.example .env
+# edit .env: POSTGRES_PASSWORD, DATABASE_URL, JWT_SECRET, API keys
+docker compose up -d
 npm install
 npx prisma migrate dev
 npm run dev
 ```
+
+`POSTGRES_PASSWORD` is required for Compose. Postgres binds to `127.0.0.1:5432` by default (`POSTGRES_BIND`). For production, use a strong password and attach the API on the `mosaic-net` Docker network instead of publishing the port publicly.
 
 In a second terminal, after the API is listening:
 
@@ -217,6 +302,10 @@ npm install
 npm run dev
 ```
 
-The site listens on port `3000`. Point `NEXT_PUBLIC_API_BASE_URL` at the API if it is not `http://localhost:8080`.
+The app listens on port `3000` and redirects `/` → `/mosaic`. Point `NEXT_PUBLIC_API_BASE_URL` at the API if it is not `http://localhost:8080` (this repo’s example API port is `9090`).
+
+Docs and setup walkthrough: [`index.html`](./index.html).
+
+Repo: [github.com/SirSimon162/mosaic-book](https://github.com/SirSimon162/mosaic-book) · Architecture: [README.md on GitHub](https://github.com/SirSimon162/mosaic-book/blob/main/README.md)
 
 The license is ISC. See `LICENSE`.

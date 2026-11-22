@@ -17,6 +17,7 @@ import type {
   RegisterBody,
   SessionUser,
   SourceDetail,
+  SourceSearchResult,
   UpdateWorkspaceBody,
   WorkspaceInvite,
   Workspace,
@@ -218,7 +219,7 @@ export const MOSAIC = {
     input: { query: string; sourceIds?: string[] },
     signal?: AbortSignal,
   ) {
-    return request<Citation[]>(workspacePath(workspaceId, "/source/search"), {
+    return request<SourceSearchResult>(workspacePath(workspaceId, "/source/search"), {
       method: "POST",
       body: JSON.stringify(input),
       signal,
@@ -288,6 +289,22 @@ export const MOSAIC = {
       const data = item.data;
       if (item.event === "user" && isRecord(data) && isMessage(data.message)) {
         yield { type: "user", message: data.message };
+      } else if (item.event === "status" && isRecord(data) && typeof data.text === "string") {
+        yield { type: "status", text: data.text };
+      } else if (
+        item.event === "rewrite" &&
+        isRecord(data) &&
+        typeof data.query === "string" &&
+        Array.isArray(data.corrections)
+      ) {
+        yield {
+          type: "rewrite",
+          query: data.query,
+          corrections: data.corrections.filter(
+            (item): item is { from: string; to: string } =>
+              isRecord(item) && typeof item.from === "string" && typeof item.to === "string",
+          ),
+        };
       } else if (item.event === "citations" && isRecord(data)) {
         yield { type: "citations", citations: asCitations(data.citations) };
       } else if (item.event === "token" && isRecord(data) && typeof data.text === "string") {

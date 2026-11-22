@@ -80,11 +80,43 @@ const FORMAT_TOOLS: { kind: FormatKind; tip: string; label: ReactNode }[] = [
   { kind: "block", tip: "Code block", label: <span className="font-tertiary text-[11px]">{"```"}</span> },
 ];
 
+const THINKING_BEATS = [
+  "🔍 Digging through your sources…",
+  "🧠 Tinkering with the question…",
+  "📚 Matching passages…",
+  "✨ Cross-checking the room…",
+  "🧭 Tracing names and phrases…",
+  "🧩 Piecing the answer together…",
+  "⚡ Warming up the reply…",
+];
+
+function ThinkingStatus({ hint }: { hint: string }) {
+  const [beat, setBeat] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setBeat((current) => (current + 1) % THINKING_BEATS.length);
+    }, 1600);
+    return () => window.clearInterval(id);
+  }, []);
+  const statusLine = hint.startsWith("Did you mean") ? THINKING_BEATS[beat] : hint || THINKING_BEATS[beat];
+  const rewriteLine = hint.startsWith("Did you mean") ? hint : "";
+  return (
+    <div className="space-y-1.5" aria-live="polite">
+      <div className="m-thinking">
+        <span className="m-thinking-dot" aria-hidden />
+        <p className="m-thinking-line">{statusLine}</p>
+      </div>
+      {rewriteLine ? <p className="m-thinking-hint">{rewriteLine}</p> : null}
+    </div>
+  );
+}
+
 export function ChatPanel({
   title,
   messages,
   draftText,
   liveCitations,
+  statusText = "",
   pending,
   loading,
   error,
@@ -98,6 +130,7 @@ export function ChatPanel({
   messages: ChatMessageRecord[];
   draftText: string;
   liveCitations: Citation[];
+  statusText?: string;
   pending: boolean;
   loading: boolean;
   error: string;
@@ -121,7 +154,7 @@ export function ChatPanel({
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages, draftText, pending]);
+  }, [messages, draftText, pending, statusText]);
 
   useEffect(() => {
     function syncActive() {
@@ -253,10 +286,14 @@ export function ChatPanel({
                 </li>
               );
             })}
-            {(draftText || (pending && liveCitations.length > 0)) && (
+            {(draftText || pending) && (
               <li className="flex justify-start">
-                <ChatBubble mine={false} citations={liveCitations}>
-                  {draftText ? <ChatMarkdown text={draftText} /> : <p className="m-md-p">Reading the sources</p>}
+                <ChatBubble mine={false} citations={draftText ? liveCitations : undefined}>
+                  {draftText ? (
+                    <ChatMarkdown text={draftText} />
+                  ) : (
+                    <ThinkingStatus hint={statusText} />
+                  )}
                 </ChatBubble>
               </li>
             )}

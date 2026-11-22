@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { DM_Sans, IBM_Plex_Mono, Instrument_Serif, Space_Grotesk } from "next/font/google";
 import Script from "next/script";
 import { SessionProvider } from "@/features/auth/provider";
-import { SiteChrome } from "@/features/shell/site-chrome";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -30,7 +29,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "Mosaic",
-  description: "A private workspace for files, sheets, sites, and videos you ask about.",
+  description: "A private workspace for sources you ask about and study from.",
   icons: { icon: "/mosaic-logo.svg" },
 };
 
@@ -43,13 +42,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${spaceGrotesk.variable} ${dmSans.variable} ${instrumentSerif.variable} ${ibmPlexMono.variable} h-full`}
       suppressHydrationWarning
     >
-      <body className="flex min-h-full flex-col bg-primary font-primary text-primary antialiased">
+      <body className="h-full min-h-full bg-primary font-primary text-primary antialiased">
         <Script id="mosaic-theme" strategy="beforeInteractive">
           {themeScript}
         </Script>
-        <SessionProvider>
-          <SiteChrome>{children}</SiteChrome>
-        </SessionProvider>
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );
